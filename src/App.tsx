@@ -134,6 +134,7 @@ export default function App() {
         await checkAdminStatus(currentUser);
       } else {
         setIsAdmin(false);
+        setLoading(false);
       }
     });
 
@@ -201,20 +202,26 @@ export default function App() {
     
     console.log("Checking admin status for provider ID:", providerId);
     
-    const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-    
-    if (error) {
-      console.error("Error checking admin status:", error);
+    try {
+      const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+      
+      if (error) {
+        console.error("Error checking admin status:", error);
+      }
+      
+      if (data) {
+        setIsAdmin(true);
+      } else {
+        // Fallback to env whitelist for initial setup
+        const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+        setIsAdmin(whitelist.includes(providerId));
+      }
+    } catch (e) {
+      console.error("Exception in checkAdminStatus:", e);
+      setIsAdmin(false);
+    } finally {
+      setLoading(false);
     }
-    
-    if (data) {
-      setIsAdmin(true);
-    } else {
-      // Fallback to env whitelist for initial setup
-      const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-      setIsAdmin(whitelist.includes(providerId));
-    }
-    setLoading(false);
   };
 
   const fetchData = async () => {
