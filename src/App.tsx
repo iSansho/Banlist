@@ -120,9 +120,14 @@ export default function App() {
       console.error('Error fetching Discord members:', error);
       let msg = error.message;
       if (error.response?.data) {
-        msg = typeof error.response.data === 'string' 
-          ? error.response.data 
-          : (error.response.data.error || JSON.stringify(error.response.data));
+        const data = error.response.data;
+        if (typeof data === 'string') {
+          msg = data;
+        } else if (data.error && typeof data.error === 'string') {
+          msg = data.error;
+        } else {
+          msg = JSON.stringify(data);
+        }
       }
       setDiscordError(`Chyba pripojenia k Discord API: ${msg}`);
     } finally {

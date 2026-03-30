@@ -11,31 +11,29 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Health check for Vercel deployment
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "ok", 
     env: {
       hasBotToken: !!process.env.DISCORD_BOT_TOKEN,
       hasGuildId: !!process.env.DISCORD_GUILD_ID,
-      nodeEnv: process.env.NODE_ENV
+      nodeEnv: process.env.NODE_ENV,
+      isVercel: !!process.env.VERCEL
     }
   });
 });
 
-// API for Discord Webhook (to keep URL secret)
+// API for Discord Webhook
 app.post("/api/webhook", async (req, res) => {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    return res.status(500).json({ error: "Webhook URL not configured" });
-  }
+  if (!webhookUrl) return res.status(500).json({ error: "Webhook URL not configured" });
 
   try {
     await axios.post(webhookUrl, req.body);
     res.json({ success: true });
   } catch (error: any) {
-    console.error("Webhook error:", error.response?.data || error.message);
-    res.status(500).json({ error: "Failed to send webhook" });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -53,13 +51,10 @@ app.get("/api/discord/members", async (req, res) => {
     let lastId = "0";
     let hasMore = true;
     let iterations = 0;
-    const MAX_ITERATIONS = 5; // Fetch up to 5000 members
 
-    while (hasMore && iterations < MAX_ITERATIONS) {
+    while (hasMore && iterations < 5) {
       const response = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000&after=${lastId}`, {
-        headers: {
-          Authorization: `Bot ${botToken}`
-        }
+        headers: { Authorization: `Bot ${botToken}` }
       });
 
       const members = response.data;
@@ -68,27 +63,25 @@ app.get("/api/discord/members", async (req, res) => {
       } else {
         allMembers = [...allMembers, ...members];
         lastId = members[members.length - 1].user.id;
-        if (members.length < 1000) {
-          hasMore = false;
-        }
+        if (members.length < 1000) hasMore = false;
       }
       iterations++;
     }
-
-    console.log(`Fetched ${allMembers.length} Discord members from guild ${guildId}`);
 
     const mappedMembers = allMembers.map((m: any) => ({
       id: m.user.id,
       username: m.user.username,
       global_name: m.user.global_name,
-      avatar: m.user.avatar,
-      discriminator: m.user.discriminator
+      avatar: m.user.avatar
     }));
 
     res.json(mappedMembers);
   } catch (error: any) {
     console.error("Discord API error:", error.response?.data || error.message);
-    res.status(500).json({ error: "Failed to fetch Discord members" });
+    res.status(500).json({ 
+      error: error.message,
+      discordResponse: error.response?.data 
+    });
   }
 });
 
@@ -115,9 +108,6 @@ if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
       console.log(`Server running on http://0.0.0.0:${PORT}`);
     });
   });
-} else {
-  // On Vercel production, we don't need setupVite because static files are served by Vercel
-  // But we still need to handle the API routes
 }
 
 export default app;
