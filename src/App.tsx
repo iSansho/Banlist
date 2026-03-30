@@ -102,14 +102,19 @@ export default function App() {
 
   const fetchData = async () => {
     setLoading(true);
-    await Promise.all([
-      fetchPunishments(),
-      fetchWanted(),
-      fetchBugs(),
-      fetchMeetings(),
-      fetchLogs()
-    ]);
-    setLoading(false);
+    try {
+      await Promise.all([
+        fetchPunishments(),
+        fetchWanted(),
+        fetchBugs(),
+        fetchMeetings(),
+        fetchLogs()
+      ]);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logAction = async (action: string, target: string, details: string) => {
@@ -253,10 +258,13 @@ export default function App() {
     }
 
     if (error) {
+      console.error('Supabase error:', error);
       alert('Chyba pri ukladaní: ' + error.message);
-    } else {
-      // Send Webhook for Banlist only for now
-      if (activeSection === 'BANLIST') {
+      return;
+    }
+
+    // Send Webhook for Banlist only for now
+    if (activeSection === 'BANLIST') {
         try {
           await fetch('/api/webhook', {
             method: 'POST',
@@ -283,11 +291,11 @@ export default function App() {
         }
       }
 
+      alert('Záznam bol úspešne uložený!');
       setIsModalOpen(false);
       setEditingItem(null);
       resetForm();
-      fetchData();
-    }
+      await fetchData();
   };
 
   const resetForm = () => {
@@ -541,6 +549,38 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+              {/* Quick Action: New Ban */}
+              {isAdmin && (
+                <button 
+                  onClick={() => { setActiveSection('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                  className="group relative bg-red-600/5 border border-red-600/20 p-8 rounded-3xl hover:bg-red-600 hover:border-red-600 transition-all text-left overflow-hidden"
+                >
+                  <div className="relative z-10">
+                    <div className="bg-red-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-white/20 transition-all">
+                      <Plus className="w-6 h-6 text-red-500 group-hover:text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2 group-hover:text-white">Pridať Ban</h3>
+                    <p className="text-zinc-500 text-sm group-hover:text-red-100">Rýchle udelenie nového trestu.</p>
+                  </div>
+                </button>
+              )}
+
+              {/* Quick Action: New Wanted */}
+              {isAdmin && (
+                <button 
+                  onClick={() => { setActiveSection('WANTED'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                  className="group relative bg-orange-600/5 border border-orange-600/20 p-8 rounded-3xl hover:bg-orange-600 hover:border-orange-600 transition-all text-left overflow-hidden"
+                >
+                  <div className="relative z-10">
+                    <div className="bg-orange-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-white/20 transition-all">
+                      <Plus className="w-6 h-6 text-orange-500 group-hover:text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2 group-hover:text-white">Pridať Wanted</h3>
+                    <p className="text-zinc-500 text-sm group-hover:text-orange-100">Zápis novej hľadanej osoby.</p>
+                  </div>
+                </button>
+              )}
+
               {/* Banlist Card */}
               <button 
                 onClick={() => setActiveSection('BANLIST')}

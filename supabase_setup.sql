@@ -2,8 +2,8 @@
 create table punishments (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default now(),
-  target_id text not null,
-  target_name text not null,
+  discord_id text,
+  discord_username text,
   type text not null,
   reason text not null,
   details text,
@@ -17,11 +17,12 @@ create table punishments (
 create table wanted (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default now(),
-  target_name text not null,
+  discord_id text,
+  discord_username text,
   description text not null,
-  last_seen text,
   danger_level text not null, -- LOW, MEDIUM, HIGH, EXTREME
   status text default 'ACTIVE', -- ACTIVE, CAPTURED, DECEASED
+  whitelist_status text default 'NONE', -- DENIED, ALLOWED, NONE
   admin_name text not null
 );
 
