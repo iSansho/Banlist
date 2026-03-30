@@ -106,7 +106,8 @@ export default function App() {
           // Only fetch data if they are actually an admin
           // The checkAdminStatus function updates the state, but we need to check the DB directly here
           // to prevent fetching data before the state updates
-          const providerId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
+          const rawProviderId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
+          const providerId = String(rawProviderId).trim();
           const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
           const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
           const isUserAdmin = !!data || whitelist.includes(providerId);
@@ -195,7 +196,8 @@ export default function App() {
     
     // Check if user is in admins table
     // Supabase can store the provider ID in different places depending on the exact auth flow
-    const providerId = user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id;
+    const rawProviderId = user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id;
+    const providerId = String(rawProviderId).trim();
     
     console.log("Checking admin status for provider ID:", providerId);
     
@@ -378,7 +380,17 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setIsAdmin(false);
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      // Force clear local storage just in case Supabase fails to clear it
+      localStorage.clear();
+      window.location.reload();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

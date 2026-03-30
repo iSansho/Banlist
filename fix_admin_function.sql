@@ -26,4 +26,4 @@ begin
     where discord_id = _discord_id
   );
 end;
-$$ language plpgsql security definer;sw
+$$ language plpgsql security definer;

@@ -105,6 +105,7 @@ drop policy if exists "Admini môžu čítať a zapisovať logy" on logs;
 drop policy if exists "Admini môžu čítať a zapisovať admins" on admins;
 drop policy if exists "Admini môžu čítať a zapisovať punishment_reasons" on punishment_reasons;
 drop policy if exists "Všetci prihlásení môžu čítať admins" on admins;
+drop policy if exists "Všetci môžu čítať admins pre overenie" on admins;
 
 -- Vytvorenie funkcie na overenie admina
 create or replace function public.is_admin()
@@ -128,4 +129,4 @@ create policy "Admini môžu čítať a zapisovať admins" on admins for all usi
 create policy "Admini môžu čítať a zapisovať punishment_reasons" on punishment_reasons for all using (public.is_admin());
 
 -- Umožnenie čítania tabuľky admins aj pre ne-adminov, aby sa vedeli overiť pri prvom prihlásení
-create policy "Všetci prihlásení môžu čítať admins" on admins for select using (auth.role() = 'authenticated');
+create policy "Všetci môžu čítať admins pre overenie" on admins for select using (true);
