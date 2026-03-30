@@ -231,11 +231,13 @@ export default function App() {
             onFocus={() => setIsOpen(true)}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-zinc-500 transition-all"
           />
-          {isDiscordLoading && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {isDiscordLoading ? (
               <div className="w-3 h-3 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
+            ) : (
+              <span className="text-[10px] text-zinc-600 font-mono">{discordMembers.length}</span>
+            )}
+          </div>
         </div>
         {isOpen && search.length > 0 && (
           <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
@@ -784,23 +786,6 @@ export default function App() {
                 <h3 className="text-base font-bold">Meetings</h3>
                 <p className="text-zinc-500 text-xs mt-1">Plánované porady a dôležité stretnutia tímu.</p>
               </button>
-
-              {/* Settings Card (Admin Only) */}
-              {isAdmin && (
-                <button 
-                  onClick={() => setActiveSection('SETTINGS')}
-                  className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-indigo-600/50 transition-all text-left"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="bg-indigo-600/10 p-2 rounded-xl group-hover:bg-indigo-600 transition-all">
-                      <Settings className="w-5 h-5 text-indigo-500 group-hover:text-white" />
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
-                  </div>
-                  <h3 className="text-base font-bold">Nastavenia</h3>
-                  <p className="text-zinc-500 text-xs mt-1">Správa adminov a systémové logy.</p>
-                </button>
-              )}
             </div>
           </div>
         ) : activeSection === 'SETTINGS' ? (

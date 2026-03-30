@@ -38,15 +38,35 @@ async function startServer() {
     }
 
     try {
-      // Discord API limits members fetch to 1000 per request. 
-      // For larger servers, pagination would be needed.
-      const response = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
-        headers: {
-          Authorization: `Bot ${botToken}`
-        }
-      });
+      let allMembers: any[] = [];
+      let lastId = "0";
+      let hasMore = true;
+      let iterations = 0;
+      const MAX_ITERATIONS = 5; // Fetch up to 5000 members
 
-      const members = response.data.map((m: any) => ({
+      while (hasMore && iterations < MAX_ITERATIONS) {
+        const response = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000&after=${lastId}`, {
+          headers: {
+            Authorization: `Bot ${botToken}`
+          }
+        });
+
+        const members = response.data;
+        if (members.length === 0) {
+          hasMore = false;
+        } else {
+          allMembers = [...allMembers, ...members];
+          lastId = members[members.length - 1].user.id;
+          if (members.length < 1000) {
+            hasMore = false;
+          }
+        }
+        iterations++;
+      }
+
+      console.log(`Fetched ${allMembers.length} Discord members from guild ${guildId}`);
+
+      const mappedMembers = allMembers.map((m: any) => ({
         id: m.user.id,
         username: m.user.username,
         global_name: m.user.global_name,
@@ -54,7 +74,7 @@ async function startServer() {
         discriminator: m.user.discriminator
       }));
 
-      res.json(members);
+      res.json(mappedMembers);
     } catch (error: any) {
       console.error("Discord API error:", error.response?.data || error.message);
       res.status(500).json({ error: "Failed to fetch Discord members" });
