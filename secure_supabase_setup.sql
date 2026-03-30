@@ -96,6 +96,16 @@ drop policy if exists "Admini môžu meniť bugs" on bugs;
 drop policy if exists "Admini môžu meniť meetings" on meetings;
 drop policy if exists "Systém môže zapisovať logy" on logs;
 
+-- Odstránenie nových politík (pre prípad, že sa skript spúšťa viackrát)
+drop policy if exists "Admini môžu čítať a zapisovať tresty" on punishments;
+drop policy if exists "Admini môžu čítať a zapisovať wanted" on wanted;
+drop policy if exists "Admini môžu čítať a zapisovať bugs" on bugs;
+drop policy if exists "Admini môžu čítať a zapisovať meetings" on meetings;
+drop policy if exists "Admini môžu čítať a zapisovať logy" on logs;
+drop policy if exists "Admini môžu čítať a zapisovať admins" on admins;
+drop policy if exists "Admini môžu čítať a zapisovať punishment_reasons" on punishment_reasons;
+drop policy if exists "Všetci prihlásení môžu čítať admins" on admins;
+
 -- Vytvorenie funkcie na overenie admina
 create or replace function public.is_admin()
 returns boolean as $$

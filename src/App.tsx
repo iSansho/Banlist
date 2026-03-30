@@ -102,9 +102,19 @@ export default function App() {
       
       if (currentUser) {
         await checkAdminStatus(currentUser);
-        await fetchData();
-        fetchDiscordMembers();
-        fetchPunishmentReasons();
+        // Only fetch data if they are actually an admin
+        // The checkAdminStatus function updates the state, but we need to check the DB directly here
+        // to prevent fetching data before the state updates
+        const providerId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
+        const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+        const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+        const isUserAdmin = !!data || whitelist.includes(providerId);
+
+        if (isUserAdmin) {
+          await fetchData();
+          fetchDiscordMembers();
+          fetchPunishmentReasons();
+        }
       } else {
         setLoading(false);
       }
@@ -175,6 +185,7 @@ export default function App() {
   const checkAdminStatus = async (user: any) => {
     if (!user) {
       setIsAdmin(false);
+      setLoading(false);
       return;
     }
     
@@ -197,6 +208,7 @@ export default function App() {
       const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
       setIsAdmin(whitelist.includes(providerId));
     }
+    setLoading(false);
   };
 
   const fetchData = async () => {
@@ -769,7 +781,7 @@ export default function App() {
     );
   }
 
-  if (!isAdmin) {
+  if (user && !isAdmin) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 relative overflow-hidden text-center">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-red-600/5 blur-[120px] rounded-full"></div>
