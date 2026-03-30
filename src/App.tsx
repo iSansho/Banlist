@@ -48,6 +48,7 @@ export default function App() {
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [discordMembers, setDiscordMembers] = useState<any[]>([]);
   const [isDiscordLoading, setIsDiscordLoading] = useState(false);
+  const [discordError, setDiscordError] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [wantedSearchTerm, setWantedSearchTerm] = useState('');
@@ -107,11 +108,18 @@ export default function App() {
 
   const fetchDiscordMembers = async () => {
     setIsDiscordLoading(true);
+    setDiscordError(null);
     try {
       const response = await axios.get('/api/discord/members');
-      setDiscordMembers(response.data);
-    } catch (error) {
+      if (Array.isArray(response.data)) {
+        setDiscordMembers(response.data);
+      } else {
+        setDiscordError('Server vrátil neplatné dáta (pravdepodobne chyba smerovania na Verceli).');
+      }
+    } catch (error: any) {
       console.error('Error fetching Discord members:', error);
+      const msg = error.response?.data?.error || error.message;
+      setDiscordError(`Chyba pripojenia k Discord API: ${msg}`);
     } finally {
       setIsDiscordLoading(false);
     }
@@ -241,8 +249,15 @@ export default function App() {
         </div>
         {isOpen && search.length > 0 && (
           <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+            {discordError ? (
+              <div className="p-3 text-xs text-red-400 bg-red-400/10 border-b border-red-400/20">
+                {discordError}
+              </div>
+            ) : null}
             {filtered.length === 0 ? (
-              <div className="p-3 text-xs text-zinc-500 text-center">Žiadni užívatelia nenájdení</div>
+              <div className="p-3 text-xs text-zinc-500 text-center">
+                {isDiscordLoading ? 'Načítavam členov...' : 'Žiadni užívatelia nenájdení'}
+              </div>
             ) : (
               filtered.map((m) => (
                 <button

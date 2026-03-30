@@ -11,6 +11,18 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Health check for Vercel deployment
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    env: {
+      hasBotToken: !!process.env.DISCORD_BOT_TOKEN,
+      hasGuildId: !!process.env.DISCORD_GUILD_ID,
+      nodeEnv: process.env.NODE_ENV
+    }
+  });
+});
+
 // API for Discord Webhook (to keep URL secret)
 app.post("/api/webhook", async (req, res) => {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
