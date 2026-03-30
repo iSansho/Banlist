@@ -1,4 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { format, isAfter, parseISO, addHours, addDays } from 'date-fns';
+import { sk } from 'date-fns/locale';
+import axios from 'axios';
+import { GoogleGenAI } from "@google/genai";
 import { 
   Search, 
   Plus, 
@@ -12,6 +16,7 @@ import {
   ExternalLink,
   Trash2,
   Edit2,
+  Edit,
   CheckCircle2,
   XCircle,
   Users,
@@ -24,20 +29,19 @@ import {
   LayoutDashboard,
   AlertCircle,
   ShieldCheck,
-  UserPlus
+  UserPlus,
+  FileText,
+  Gavel
 } from 'lucide-react';
-import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin } from './lib/supabase';
 import { cn } from './lib/utils';
-import { format, isAfter, parseISO } from 'date-fns';
-import { sk } from 'date-fns/locale';
-import axios from 'axios';
+import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason } from './lib/supabase';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'BANLIST' | 'WANTED' | 'BUGS' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
-  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS'>('LOGS');
+  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS'>('LOGS');
   
   // Data states
   const [punishments, setPunishments] = useState<Punishment[]>([]);
@@ -46,6 +50,7 @@ export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [admins, setAdmins] = useState<Admin[]>([]);
+  const [punishmentReasons, setPunishmentReasons] = useState<PunishmentReason[]>([]);
   const [discordMembers, setDiscordMembers] = useState<any[]>([]);
   const [isDiscordLoading, setIsDiscordLoading] = useState(false);
   const [discordError, setDiscordError] = useState<string | null>(null);
@@ -102,9 +107,23 @@ export default function App() {
 
     fetchData();
     fetchDiscordMembers();
+    fetchPunishmentReasons();
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const fetchPunishmentReasons = async () => {
+    const { data, error } = await supabase
+      .from('punishment_reasons')
+      .select('*')
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching punishment reasons:', error);
+      return;
+    }
+    setPunishmentReasons(data || []);
+  };
 
   const fetchDiscordMembers = async () => {
     setIsDiscordLoading(true);
@@ -289,7 +308,14 @@ export default function App() {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold text-white">{m.global_name || m.username}</span>
-                    <span className="text-[10px] text-zinc-500">@{m.username} • {m.id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-zinc-500">@{m.username} • {m.id}</span>
+                      {punishments.filter(p => p.discord_id === m.id && p.type === 'WARN' && !isExpired(p.expires_at)).length > 0 && (
+                        <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-1 rounded font-bold">
+                          {punishments.filter(p => p.discord_id === m.id && p.type === 'WARN' && !isExpired(p.expires_at)).length} WARNS
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               ))
@@ -328,6 +354,14 @@ export default function App() {
           alert('Discord ID alebo Discord Username musí byť vyplnené.');
           return;
         }
+
+        // Warn Limit Check
+        if (formData.type === 'WARN' && activeWarns >= 3) {
+          if (!confirm(`Hráč má už ${activeWarns} aktívne warny. Podľa pravidiel by mal byť 4. trest BAN. Naozaj chcete pokračovať s WARNOM?`)) {
+            return;
+          }
+        }
+
         table = 'punishments';
         payload = {
           discord_id: formData.discord_id,
@@ -375,6 +409,17 @@ export default function App() {
           };
           logMsg = `Pridaný nový admin: ${formData.discord_username}`;
           targetName = formData.discord_username;
+        } else if (settingsTab === 'REASONS') {
+          if (!formData.reason) {
+            alert('Názov dôvodu musí byť vyplnený.');
+            return;
+          }
+          table = 'punishment_reasons';
+          payload = {
+            label: formData.reason
+          };
+          logMsg = `Pridaný nový dôvod: ${formData.reason}`;
+          targetName = formData.reason;
         }
         break;
       case 'BUGS':
@@ -425,6 +470,10 @@ export default function App() {
       return;
     }
 
+    if (activeSection === 'SETTINGS' && settingsTab === 'REASONS') {
+      await fetchPunishmentReasons();
+    }
+
     // Send Webhook for Banlist only for now
     if (activeSection === 'BANLIST') {
         try {
@@ -465,7 +514,7 @@ export default function App() {
       discord_id: '',
       discord_username: '',
       type: 'WARN',
-      reason: PUNISHMENT_REASONS[0],
+      reason: punishmentReasons.length > 0 ? punishmentReasons[0].label : PUNISHMENT_REASONS[0],
       details: '',
       evidence_url: '',
       expires_at: '',
@@ -491,6 +540,15 @@ export default function App() {
       case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.target_name || 'Wanted'; break;
       case 'BUGS': table = 'bugs'; name = bugs.find(b => b.id === id)?.title || 'Bug'; break;
       case 'MEETINGS': table = 'meetings'; name = meetings.find(m => m.id === id)?.title || 'Meeting'; break;
+      case 'SETTINGS':
+        if (settingsTab === 'ADMINS') {
+          table = 'admins';
+          name = admins.find(a => a.id === id)?.username || 'Admin';
+        } else if (settingsTab === 'REASONS') {
+          table = 'punishment_reasons';
+          name = punishmentReasons.find(r => r.id === id)?.label || 'Dôvod';
+        }
+        break;
     }
 
     const { error } = await supabase.from(table).delete().eq('id', id);
@@ -540,6 +598,19 @@ export default function App() {
         scheduled_at: item.scheduled_at ? new Date(item.scheduled_at).toISOString().slice(0, 16) : '',
         location: item.location,
       });
+    } else if (activeSection === 'SETTINGS') {
+      if (settingsTab === 'ADMINS') {
+        setFormData({
+          ...formData,
+          discord_id: item.discord_id || '',
+          discord_username: item.username || '',
+        });
+      } else if (settingsTab === 'REASONS') {
+        setFormData({
+          ...formData,
+          reason: item.label,
+        });
+      }
     }
     setIsModalOpen(true);
   };
@@ -586,6 +657,12 @@ export default function App() {
     if (!date) return false;
     return !isAfter(parseISO(date), new Date());
   };
+
+  const activeWarns = formData.discord_id ? punishments.filter(p => 
+    p.discord_id === formData.discord_id && 
+    p.type === 'WARN' && 
+    !isExpired(p.expires_at)
+  ).length : 0;
 
   const getTypeIcon = (type: PunishmentType) => {
     switch (type) {
@@ -846,6 +923,15 @@ export default function App() {
               >
                 Správa Adminov
               </button>
+              <button 
+                onClick={() => setSettingsTab('REASONS')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  settingsTab === 'REASONS' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Dôvody Trestov
+              </button>
             </div>
 
             {settingsTab === 'LOGS' ? (
@@ -900,7 +986,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : settingsTab === 'ADMINS' ? (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <p className="text-xs text-zinc-500">Zoznam používateľov s prístupom do admin panelu.</p>
@@ -937,12 +1023,73 @@ export default function App() {
                               </div>
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <button 
-                                onClick={() => handleDeleteAdmin(admin.id, admin.username)}
-                                className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button 
+                                  onClick={() => handleEdit(admin)}
+                                  className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-blue-500 transition-all"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(admin.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-zinc-500">Zoznam preddefinovaných dôvodov pre tresty.</p>
+                  <button 
+                    onClick={() => { setEditingItem(null); setFormData({ ...formData, reason: '' }); setIsModalOpen(true); }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2"
+                  >
+                    <Plus className="w-3 h-3" /> Pridať Dôvod
+                  </button>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dôvod</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum Vytvorenia</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {punishmentReasons.map((reason) => (
+                          <tr key={reason.id} className="hover:bg-zinc-800/30 transition-colors group">
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-bold">{reason.label}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-[10px] text-zinc-400">{format(parseISO(reason.created_at), 'd. MMMM yyyy', { locale: sk })}</span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button 
+                                  onClick={() => handleEdit(reason)}
+                                  className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-blue-500 transition-all"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(reason.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1514,7 +1661,7 @@ export default function App() {
                   activeSection === 'BANLIST' ? 'Trest' :
                   activeSection === 'WANTED' ? 'Hľadaného' :
                   activeSection === 'BUGS' ? 'Bug' : 
-                  activeSection === 'SETTINGS' ? 'Admina' : 'Meeting'
+                  activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Dôvod') : 'Meeting'
                 }
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
@@ -1524,110 +1671,160 @@ export default function App() {
             
             <form onSubmit={handleSubmit} className="p-6">
               {activeSection === 'BANLIST' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Target Info */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať z Discordu</label>
-                      <DiscordUserSearch 
-                        placeholder="Hľadať hráča..."
-                        value={formData.discord_username}
-                        onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-6">
+                  {/* Warn Limit Alert */}
+                  {activeWarns >= 3 && formData.type === 'WARN' && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 duration-300">
+                      <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                       <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Username</label>
+                        <p className="text-sm font-bold text-red-500 uppercase tracking-tight">Upozornenie: Maximálny počet warnov</p>
+                        <p className="text-xs text-red-400/80">Tento hráč má už {activeWarns} aktívne warny. Podľa pravidiel by mal byť 4. trest BAN, nie ďalší WARN.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Target Selection */}
+                  <div className="bg-zinc-950/50 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="w-4 h-4 text-red-500" />
+                      <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Cieľ trestu</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Vybrať z Discordu</label>
+                        <DiscordUserSearch 
+                          placeholder="Hľadať hráča..."
+                          value={formData.discord_username}
+                          onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
+                        />
+                      </div>
+                      
+                      <div className="relative">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Username</label>
                         <input 
                           type="text" 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
                           value={formData.discord_username}
                           onChange={e => setFormData({...formData, discord_username: e.target.value})}
                           placeholder="napr. john_doe"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">ID</label>
+                      
+                      <div className="relative">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Discord ID</label>
                         <input 
                           type="text" 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono"
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono transition-all"
                           value={formData.discord_id}
                           onChange={e => setFormData({...formData, discord_id: e.target.value})}
-                          placeholder="napr. 123456789012345678"
+                          placeholder="napr. 1234567890"
                         />
                       </div>
                     </div>
+                    <p className="text-[10px] text-zinc-600 italic ml-1">* Vyplňte aspoň jeden z údajov vyššie.</p>
                   </div>
 
-                  {/* Punishment Info */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Typ Trestu</label>
-                      <select 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                        value={PUNISHMENT_TYPES.find(t => t.value === formData.type && (t.duration === null || (formData.expires_at ? true : t.duration === -1)))?.label || 'Warn'}
-                        onChange={e => {
-                          const type = PUNISHMENT_TYPES.find(t => t.label === e.target.value);
-                          if (type) {
-                            let expiry = '';
-                            if (type.duration && type.duration !== -1) {
-                              const d = new Date();
-                              d.setDate(d.getDate() + type.duration);
-                              expiry = d.toISOString().slice(0, 16);
-                            }
-                            setFormData({...formData, type: type.value as PunishmentType, expires_at: expiry || null});
-                          }
-                        }}
-                      >
-                        {PUNISHMENT_TYPES.map(t => (
-                          <option key={t.label} value={t.label}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Dátum Expirácie</label>
-                      <input 
-                        type="datetime-local" 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                        value={formData.expires_at || ''}
-                        onChange={e => setFormData({...formData, expires_at: e.target.value})}
-                      />
-                      <p className="text-[10px] text-zinc-600 mt-1">Ponechajte prázdne pre permanentný trest.</p>
-                    </div>
-                  </div>
+                  {/* Punishment Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Typ Trestu</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {['WARN', 'BAN', 'SUSPEND', 'WL-DOWN'].map((type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, type: type as PunishmentType })}
+                              className={cn(
+                                "py-2 px-3 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2",
+                                formData.type === type 
+                                  ? "bg-red-500/20 border-red-500 text-red-500 shadow-lg shadow-red-500/10" 
+                                  : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                              )}
+                            >
+                              {type === 'WARN' && <AlertTriangle className="w-3.5 h-3.5" />}
+                              {type === 'BAN' && <Ban className="w-3.5 h-3.5" />}
+                              {type === 'SUSPEND' && <Clock className="w-3.5 h-3.5" />}
+                              {type === 'WL-DOWN' && <UserMinus className="w-3.5 h-3.5" />}
+                              {type}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-                  {/* Details */}
-                  <div className="md:col-span-2 space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Dôvod (Pravidlo)</label>
-                      <select 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                        value={formData.reason}
-                        onChange={e => setFormData({...formData, reason: e.target.value})}
-                      >
-                        {PUNISHMENT_REASONS.map(r => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Dôvod (Pravidlo)</label>
+                        <select 
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 appearance-none cursor-pointer"
+                          value={formData.reason}
+                          onChange={e => setFormData({...formData, reason: e.target.value})}
+                        >
+                          {(punishmentReasons.length > 0 ? punishmentReasons.map(r => r.label) : PUNISHMENT_REASONS).map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Podrobný Popis</label>
-                      <textarea 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 h-24 resize-none"
-                        value={formData.details}
-                        onChange={e => setFormData({...formData, details: e.target.value})}
-                        placeholder="Popíšte situáciu..."
-                      />
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Dátum Expirácie / Trvanie</label>
+                        <div className="space-y-3">
+                          <input 
+                            type="datetime-local" 
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                            value={formData.expires_at || ''}
+                            onChange={e => setFormData({...formData, expires_at: e.target.value})}
+                          />
+                          
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { label: '1h', value: () => addHours(new Date(), 1) },
+                              { label: '24h', value: () => addDays(new Date(), 1) },
+                              { label: '3d', value: () => addDays(new Date(), 3) },
+                              { label: '7d', value: () => addDays(new Date(), 7) },
+                              { label: '30d', value: () => addDays(new Date(), 30) },
+                              { label: 'Perma', value: () => null },
+                            ].map((preset) => (
+                              <button
+                                key={preset.label}
+                                type="button"
+                                onClick={() => {
+                                  const date = preset.value();
+                                  setFormData({ ...formData, expires_at: date ? format(date, "yyyy-MM-dd'T'HH:mm") : null });
+                                }}
+                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold text-zinc-400 transition-colors"
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Link na Dôkaz (Imgur/Youtube/Medal)</label>
-                      <input 
-                        type="url" 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
-                        value={formData.evidence_url}
-                        onChange={e => setFormData({...formData, evidence_url: e.target.value})}
-                        placeholder="https://..."
-                      />
+
+                    <div className="md:col-span-2 space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Podrobný Popis</label>
+                        <textarea 
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 h-24 resize-none transition-all"
+                          value={formData.details}
+                          onChange={e => setFormData({...formData, details: e.target.value})}
+                          placeholder="Popíšte situáciu a porušené pravidlá..."
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Link na dôkaz (Imgur/YouTube/Medal)</label>
+                        <input 
+                          type="url" 
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                          value={formData.evidence_url}
+                          onChange={e => setFormData({...formData, evidence_url: e.target.value})}
+                          placeholder="https://..."
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1744,6 +1941,22 @@ export default function App() {
                 </div>
               )}
 
+              {activeSection === 'SETTINGS' && settingsTab === 'REASONS' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Názov Dôvodu</label>
+                    <input 
+                      required
+                      type="text" 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      value={formData.reason}
+                      onChange={e => setFormData({...formData, reason: e.target.value})}
+                      placeholder="napr. Combatlog"
+                    />
+                  </div>
+                </div>
+              )}
+
               {activeSection === 'BUGS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
@@ -1853,6 +2066,7 @@ export default function App() {
                     activeSection === 'BANLIST' ? "bg-red-600 hover:bg-red-700 shadow-red-900/20" :
                     activeSection === 'WANTED' ? "bg-orange-600 hover:bg-orange-700 shadow-orange-900/20" :
                     activeSection === 'BUGS' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-900/20" :
+                    activeSection === 'SETTINGS' ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20" :
                     "bg-purple-600 hover:bg-purple-700 shadow-purple-900/20"
                   )}
                 >

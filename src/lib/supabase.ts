@@ -75,6 +75,12 @@ export interface Admin {
   added_by: string;
 }
 
+export interface PunishmentReason {
+  id: string;
+  created_at: string;
+  label: string;
+}
+
 export const PUNISHMENT_REASONS = [
   'Combatlog',
   'NoFear',
