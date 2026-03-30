@@ -179,8 +179,16 @@ export default function App() {
     }
     
     // Check if user is in admins table
-    const providerId = user.user_metadata?.provider_id || user.id;
-    const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).single();
+    // Supabase can store the provider ID in different places depending on the exact auth flow
+    const providerId = user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id;
+    
+    console.log("Checking admin status for provider ID:", providerId);
+    
+    const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+    
+    if (error) {
+      console.error("Error checking admin status:", error);
+    }
     
     if (data) {
       setIsAdmin(true);
@@ -774,6 +782,11 @@ export default function App() {
             <h1 className="text-2xl font-black tracking-tight mb-2">Prístup Zamietnutý</h1>
             <p className="text-zinc-500 text-sm mb-8">
               Váš účet ({user.user_metadata?.full_name || user.email}) nemá oprávnenie na prístup do tohto systému. 
+              <br/><br/>
+              <span className="text-xs text-zinc-600 font-mono bg-zinc-950 px-2 py-1 rounded">
+                Vaše ID: {user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id}
+              </span>
+              <br/><br/>
               Kontaktujte hlavného administrátora pre pridelenie prístupu.
             </p>
             
