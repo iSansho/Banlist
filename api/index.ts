@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import axios from "axios";
 import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
@@ -9,6 +10,39 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Middleware to check admin status
+const requireAdmin = async (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
+
+  const token = authHeader.split(" ")[1];
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  
+  if (error || !user) return res.status(401).json({ error: "Unauthorized" });
+
+  const providerId = user.user_metadata?.provider_id || user.id;
+  
+  const { data: adminData } = await supabase
+    .from("admins")
+    .select("*")
+    .eq("discord_id", providerId)
+    .single();
+
+  const whitelist = process.env.VITE_ADMIN_WHITELIST?.split(",") || [];
+  const isWhitelisted = whitelist.includes(providerId);
+
+  if (!adminData && !isWhitelisted) {
+    return res.status(403).json({ error: "Forbidden: Admins only" });
+  }
+
+  req.user = user;
+  next();
+};
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -24,7 +58,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // API for Discord Webhook
-app.post("/api/webhook", async (req, res) => {
+app.post("/api/webhook", requireAdmin, async (req, res) => {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) return res.status(500).json({ error: "Webhook URL not configured" });
 
@@ -37,7 +71,7 @@ app.post("/api/webhook", async (req, res) => {
 });
 
 // API for Discord Members
-app.get("/api/discord/members", async (req, res) => {
+app.get("/api/discord/members", requireAdmin, async (req, res) => {
   const botToken = process.env.DISCORD_BOT_TOKEN;
   const guildId = process.env.DISCORD_GUILD_ID;
 

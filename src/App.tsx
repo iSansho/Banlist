@@ -94,20 +94,33 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Check auth session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      checkAdminStatus(session?.user);
-    });
+    const init = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      
+      if (currentUser) {
+        await checkAdminStatus(currentUser);
+        await fetchData();
+        fetchDiscordMembers();
+        fetchPunishmentReasons();
+      } else {
+        setLoading(false);
+      }
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      checkAdminStatus(session?.user);
-    });
+    init();
 
-    fetchData();
-    fetchDiscordMembers();
-    fetchPunishmentReasons();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        await checkAdminStatus(currentUser);
+      } else {
+        setIsAdmin(false);
+      }
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -129,7 +142,12 @@ export default function App() {
     setIsDiscordLoading(true);
     setDiscordError(null);
     try {
-      const response = await axios.get('/api/discord/members');
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await axios.get('/api/discord/members', {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`
+        }
+      });
       if (Array.isArray(response.data)) {
         setDiscordMembers(response.data);
       } else {
@@ -477,9 +495,13 @@ export default function App() {
     // Send Webhook for Banlist only for now
     if (activeSection === 'BANLIST') {
         try {
+          const { data: { session } } = await supabase.auth.getSession();
           await fetch('/api/webhook', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`
+            },
             body: JSON.stringify({
               embeds: [{
                 title: `${editingItem ? 'Upravený' : 'Nový'} Trest: ${formData.type}`,
@@ -708,8 +730,8 @@ export default function App() {
               Prihlásiť cez Discord
             </button>
 
-            {/* Test Mode Button - Only visible in development or via query param */}
-            {(import.meta.env.DEV || window.location.search.includes('test=true')) && (
+            {/* Test Mode Button - Only visible in development */}
+            {import.meta.env.DEV && (
               <button 
                 onClick={() => {
                   const mockUser = {
@@ -733,6 +755,34 @@ export default function App() {
             <div className="mt-8 pt-8 border-t border-zinc-800">
               <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený prístup</p>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 relative overflow-hidden text-center">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-red-600/5 blur-[120px] rounded-full"></div>
+        
+        <div className="relative z-10 w-full max-w-md">
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl">
+            <div className="inline-flex bg-red-600/20 p-4 rounded-2xl mb-6">
+              <AlertCircle className="w-10 h-10 text-red-500" />
+            </div>
+            <h1 className="text-2xl font-black tracking-tight mb-2">Prístup Zamietnutý</h1>
+            <p className="text-zinc-500 text-sm mb-8">
+              Váš účet ({user.user_metadata?.full_name || user.email}) nemá oprávnenie na prístup do tohto systému. 
+              Kontaktujte hlavného administrátora pre pridelenie prístupu.
+            </p>
+            
+            <button 
+              onClick={handleLogout}
+              className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3"
+            >
+              <LogOut className="w-5 h-5" /> Odhlásiť sa
+            </button>
           </div>
         </div>
       </div>
