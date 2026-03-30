@@ -67,6 +67,14 @@ export interface Log {
   details: string;
 }
 
+export interface Admin {
+  id: string;
+  created_at: string;
+  discord_id: string;
+  username: string;
+  added_by: string;
+}
+
 export const PUNISHMENT_REASONS = [
   'Combatlog',
   'NoFear',

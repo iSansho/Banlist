@@ -22,18 +22,22 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutDashboard,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  UserPlus
 } from 'lucide-react';
-import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log } from './lib/supabase';
+import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin } from './lib/supabase';
 import { cn } from './lib/utils';
 import { format, isAfter, parseISO } from 'date-fns';
 import { sk } from 'date-fns/locale';
+import axios from 'axios';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'BANLIST' | 'WANTED' | 'BUGS' | 'MEETINGS' | 'LOGS'>('DASHBOARD');
+  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'BANLIST' | 'WANTED' | 'BUGS' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
+  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS'>('LOGS');
   
   // Data states
   const [punishments, setPunishments] = useState<Punishment[]>([]);
@@ -41,6 +45,9 @@ export default function App() {
   const [bugs, setBugs] = useState<Bug[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [admins, setAdmins] = useState<Admin[]>([]);
+  const [discordMembers, setDiscordMembers] = useState<any[]>([]);
+  const [isDiscordLoading, setIsDiscordLoading] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [wantedSearchTerm, setWantedSearchTerm] = useState('');
@@ -93,18 +100,40 @@ export default function App() {
     });
 
     fetchData();
+    fetchDiscordMembers();
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkAdminStatus = (user: any) => {
+  const fetchDiscordMembers = async () => {
+    setIsDiscordLoading(true);
+    try {
+      const response = await axios.get('/api/discord/members');
+      setDiscordMembers(response.data);
+    } catch (error) {
+      console.error('Error fetching Discord members:', error);
+    } finally {
+      setIsDiscordLoading(false);
+    }
+  };
+
+  const checkAdminStatus = async (user: any) => {
     if (!user) {
       setIsAdmin(false);
       return;
     }
-    const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+    
+    // Check if user is in admins table
     const providerId = user.user_metadata?.provider_id || user.id;
-    setIsAdmin(whitelist.includes(providerId));
+    const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).single();
+    
+    if (data) {
+      setIsAdmin(true);
+    } else {
+      // Fallback to env whitelist for initial setup
+      const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+      setIsAdmin(whitelist.includes(providerId));
+    }
   };
 
   const fetchData = async () => {
@@ -115,7 +144,8 @@ export default function App() {
         fetchWanted(),
         fetchBugs(),
         fetchMeetings(),
-        fetchLogs()
+        fetchLogs(),
+        fetchAdmins()
       ]);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -159,6 +189,88 @@ export default function App() {
   const fetchLogs = async () => {
     const { data } = await supabase.from('logs').select('*').order('created_at', { ascending: false });
     setLogs(data || []);
+  };
+
+  const fetchAdmins = async () => {
+    const { data } = await supabase.from('admins').select('*').order('created_at', { ascending: false });
+    setAdmins(data || []);
+  };
+
+  const handleDeleteAdmin = async (id: string, username: string) => {
+    if (!confirm(`Naozaj chcete odobrať prístup adminovi ${username}?`)) return;
+    
+    const { error } = await supabase.from('admins').delete().eq('id', id);
+    if (!error) {
+      logAction('ODOBRATIE_ADMINA', username, `Admin ${username} bol odobraný zo systému.`);
+      fetchAdmins();
+    }
+  };
+
+  const DiscordUserSearch = ({ onSelect, value, placeholder }: { onSelect: (user: any) => void, value: string, placeholder: string }) => {
+    const [search, setSearch] = useState(value);
+    const [isOpen, setIsOpen] = useState(false);
+
+    const filtered = discordMembers.filter(m => 
+      m.username.toLowerCase().includes(search.toLowerCase()) ||
+      (m.global_name && m.global_name.toLowerCase().includes(search.toLowerCase())) ||
+      m.id.includes(search)
+    ).slice(0, 5);
+
+    return (
+      <div className="relative">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+          <input 
+            type="text"
+            placeholder={placeholder}
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-zinc-500 transition-all"
+          />
+          {isDiscordLoading && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-3 h-3 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+        {isOpen && search.length > 0 && (
+          <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="p-3 text-xs text-zinc-500 text-center">Žiadni užívatelia nenájdení</div>
+            ) : (
+              filtered.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(m);
+                    setSearch(m.username);
+                    setIsOpen(false);
+                  }}
+                  className="w-full p-2 hover:bg-zinc-700 text-left flex items-center gap-3 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center overflow-hidden">
+                    {m.avatar ? (
+                      <img src={`https://cdn.discordapp.com/avatars/${m.id}/${m.avatar}.png`} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Users className="w-4 h-4 text-zinc-600" />
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-white">{m.global_name || m.username}</span>
+                    <span className="text-[10px] text-zinc-500">@{m.username} • {m.id}</span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleLogin = async () => {
@@ -221,6 +333,22 @@ export default function App() {
         };
         logMsg = `Level: ${formData.danger_level}, Status: ${formData.status}, WL: ${formData.whitelist_status}`;
         targetName = formData.discord_username || formData.discord_id;
+        break;
+      case 'SETTINGS':
+        if (settingsTab === 'ADMINS') {
+          if (!formData.discord_id && !formData.discord_username) {
+            alert('Discord ID alebo Discord Username musí byť vyplnené.');
+            return;
+          }
+          table = 'admins';
+          payload = {
+            discord_id: formData.discord_id,
+            username: formData.discord_username,
+            added_by: user.user_metadata?.full_name || user.email,
+          };
+          logMsg = `Pridaný nový admin: ${formData.discord_username}`;
+          targetName = formData.discord_username;
+        }
         break;
       case 'BUGS':
         table = 'bugs';
@@ -541,10 +669,10 @@ export default function App() {
                 </div>
                 {isAdmin && (
                   <button 
-                    onClick={() => setActiveSection('LOGS')}
+                    onClick={() => setActiveSection('SETTINGS')}
                     className={cn(
                       "p-2 rounded-full transition-colors",
-                      activeSection === 'LOGS' ? "bg-red-600 text-white" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                      activeSection === 'SETTINGS' ? "bg-red-600 text-white" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
                     )}
                     title="Admin Nastavenia / Logy"
                   >
@@ -657,23 +785,163 @@ export default function App() {
                 <p className="text-zinc-500 text-xs mt-1">Plánované porady a dôležité stretnutia tímu.</p>
               </button>
 
-              {/* Logs Card (Admin Only) */}
+              {/* Settings Card (Admin Only) */}
               {isAdmin && (
                 <button 
-                  onClick={() => setActiveSection('LOGS')}
-                  className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-zinc-500/50 transition-all text-left"
+                  onClick={() => setActiveSection('SETTINGS')}
+                  className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-indigo-600/50 transition-all text-left"
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <div className="bg-zinc-600/10 p-2 rounded-xl group-hover:bg-zinc-600 transition-all">
-                      <History className="w-5 h-5 text-zinc-500 group-hover:text-white" />
+                    <div className="bg-indigo-600/10 p-2 rounded-xl group-hover:bg-indigo-600 transition-all">
+                      <Settings className="w-5 h-5 text-indigo-500 group-hover:text-white" />
                     </div>
                     <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                   </div>
-                  <h3 className="text-base font-bold">Admin Logy</h3>
-                  <p className="text-zinc-500 text-xs mt-1">História všetkých akcií vykonaných administrátormi.</p>
+                  <h3 className="text-base font-bold">Nastavenia</h3>
+                  <p className="text-zinc-500 text-xs mt-1">Správa adminov a systémové logy.</p>
                 </button>
               )}
             </div>
+          </div>
+        ) : activeSection === 'SETTINGS' ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-500" /> Nastavenia Systému
+              </h2>
+              <button 
+                onClick={() => setActiveSection('DASHBOARD')}
+                className="text-xs text-zinc-500 hover:text-white flex items-center gap-1 transition-colors"
+              >
+                <ChevronLeft className="w-3 h-3" /> Späť na Dashboard
+              </button>
+            </div>
+
+            <div className="flex gap-2 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+              <button 
+                onClick={() => setSettingsTab('LOGS')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  settingsTab === 'LOGS' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Systémové Logy
+              </button>
+              <button 
+                onClick={() => setSettingsTab('ADMINS')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  settingsTab === 'ADMINS' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Správa Adminov
+              </button>
+            </div>
+
+            {settingsTab === 'LOGS' ? (
+              <div className="space-y-4">
+                <div className="relative max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                  <input 
+                    type="text"
+                    placeholder="Hľadať v logoch..."
+                    value={logsSearchTerm}
+                    onChange={(e) => setLogsSearchTerm(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-zinc-600 transition-all"
+                  />
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akcia</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cieľ</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {logs.filter(l => 
+                          l.admin_name.toLowerCase().includes(logsSearchTerm.toLowerCase()) ||
+                          l.action.toLowerCase().includes(logsSearchTerm.toLowerCase()) ||
+                          l.target_name.toLowerCase().includes(logsSearchTerm.toLowerCase())
+                        ).map((log) => (
+                          <tr key={log.id} className="hover:bg-zinc-800/30 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{log.admin_name}</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">{log.admin_discord_id}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs text-zinc-300">{log.action}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs text-zinc-400">{log.target_name}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-[10px] text-zinc-500">{format(parseISO(log.created_at), 'd. MMM HH:mm', { locale: sk })}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-zinc-500">Zoznam používateľov s prístupom do admin panelu.</p>
+                  <button 
+                    onClick={() => { setEditingItem(null); setFormData({ ...formData, discord_id: '', discord_username: '' }); setIsModalOpen(true); }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2"
+                  >
+                    <UserPlus className="w-3 h-3" /> Pridať Admina
+                  </button>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Pridaný</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {admins.map((admin) => (
+                          <tr key={admin.id} className="hover:bg-zinc-800/30 transition-colors group">
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{admin.username}</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">{admin.discord_id}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-zinc-400">{format(parseISO(admin.created_at), 'd. MMMM yyyy', { locale: sk })}</span>
+                                <span className="text-[9px] text-zinc-600">od {admin.added_by}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button 
+                                onClick={() => handleDeleteAdmin(admin.id, admin.username)}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : activeSection === 'BANLIST' ? (
           <>
@@ -1235,7 +1503,8 @@ export default function App() {
                 {editingItem ? 'Upraviť' : 'Pridať'} {
                   activeSection === 'BANLIST' ? 'Trest' :
                   activeSection === 'WANTED' ? 'Hľadaného' :
-                  activeSection === 'BUGS' ? 'Bug' : 'Meeting'
+                  activeSection === 'BUGS' ? 'Bug' : 
+                  activeSection === 'SETTINGS' ? 'Admina' : 'Meeting'
                 }
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
@@ -1249,24 +1518,34 @@ export default function App() {
                   {/* Target Info */}
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
-                      <input 
-                        type="text" 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať z Discordu</label>
+                      <DiscordUserSearch 
+                        placeholder="Hľadať hráča..."
                         value={formData.discord_username}
-                        onChange={e => setFormData({...formData, discord_username: e.target.value})}
-                        placeholder="napr. john_doe"
+                        onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
-                      <input 
-                        type="text" 
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono"
-                        value={formData.discord_id}
-                        onChange={e => setFormData({...formData, discord_id: e.target.value})}
-                        placeholder="napr. 123456789012345678"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Username</label>
+                        <input 
+                          type="text" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                          value={formData.discord_username}
+                          onChange={e => setFormData({...formData, discord_username: e.target.value})}
+                          placeholder="napr. john_doe"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">ID</label>
+                        <input 
+                          type="text" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono"
+                          value={formData.discord_id}
+                          onChange={e => setFormData({...formData, discord_id: e.target.value})}
+                          placeholder="napr. 123456789012345678"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1346,6 +1625,14 @@ export default function App() {
 
               {activeSection === 'WANTED' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať z Discordu</label>
+                    <DiscordUserSearch 
+                      placeholder="Hľadať hľadaného..."
+                      value={formData.discord_username}
+                      onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
                     <input 
@@ -1410,6 +1697,39 @@ export default function App() {
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
                     />
+                  </div>
+                </div>
+              )}
+
+              {activeSection === 'SETTINGS' && settingsTab === 'ADMINS' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať Admina z Discordu</label>
+                    <DiscordUserSearch 
+                      placeholder="Hľadať užívateľa..."
+                      value={formData.discord_username}
+                      onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
+                      <input 
+                        type="text" 
+                        readOnly
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed"
+                        value={formData.discord_username}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
+                      <input 
+                        type="text" 
+                        readOnly
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed font-mono"
+                        value={formData.discord_id}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
