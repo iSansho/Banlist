@@ -96,27 +96,13 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const currentUser = session?.user ?? null;
-        
-        if (!mounted) return;
-        setUser(currentUser);
-        
-        if (currentUser) {
-          await verifyAndFetchData(currentUser);
-        } else {
-          setIsAdmin(false);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error("Auth init error:", error);
-        if (mounted) setLoading(false);
+    // Bezpečnostný timeout pre prípad, že by sa overovanie zaseklo
+    const timeoutId = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn("Auth initialization timed out, forcing load to finish");
+        setLoading(false);
       }
-    };
-
-    initAuth();
+    }, 5000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
@@ -124,7 +110,12 @@ export default function App() {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       
-      if (event === 'SIGNED_IN' && currentUser) {
+      // Ak URL obsahuje hash s tokenom, odstránime ho pre čistejšiu URL
+      if (window.location.hash && window.location.hash.includes('access_token')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentUser) {
         setLoading(true);
         await verifyAndFetchData(currentUser);
       } else if (event === 'SIGNED_OUT' || !currentUser) {
@@ -135,6 +126,7 @@ export default function App() {
 
     return () => {
       mounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
@@ -547,6 +539,11 @@ export default function App() {
     if (activeSection === 'BANLIST') {
         try {
           const { data: { session } } = await supabase.auth.getSession();
+          
+          const embedColor = formData.type === 'BAN' ? 15158332 : (formData.type === 'WARN' ? 16776960 : 15844367);
+          const emoji = formData.type === 'BAN' ? '🔨' : (formData.type === 'WARN' ? '⚠️' : '👢');
+          const actionText = editingItem ? 'Upravený' : 'Nový';
+          
           await fetch('/api/webhook', {
             method: 'POST',
             headers: { 
@@ -555,17 +552,21 @@ export default function App() {
             },
             body: JSON.stringify({
               embeds: [{
-                title: `${editingItem ? 'Upravený' : 'Nový'} Trest: ${formData.type}`,
-                color: formData.type === 'BAN' ? 15158332 : 15844367,
+                title: `${emoji} ${actionText} Trest | ${formData.type}`,
+                description: `Hráč **${formData.discord_username || 'Neznámy'}** dostal trest od administrátora **${payload.admin_name}**.`,
+                color: embedColor,
                 fields: [
-                  { name: 'Užívateľ', value: formData.discord_username || 'Neznámy', inline: true },
-                  { name: 'Discord ID', value: formData.discord_id || 'Neznáme', inline: true },
-                  { name: 'Dôvod', value: formData.reason },
-                  { name: 'Detaily', value: formData.details || 'Žiadne' },
-                  { name: 'Dôkaz', value: formData.evidence_url || 'Žiadny' },
-                  { name: 'Expirácia', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentný' },
-                  { name: 'Admin', value: payload.admin_name }
+                  { name: '👤 Užívateľ', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámy', inline: true },
+                  { name: '🛡️ Admin', value: payload.admin_name, inline: true },
+                  { name: '\u200B', value: '\u200B', inline: true },
+                  { name: '📋 Dôvod', value: formData.reason || 'Nezadaný', inline: false },
+                  { name: '📝 Detaily', value: formData.details || '*Žiadne dodatočné detaily*', inline: false },
+                  { name: '🔗 Dôkaz', value: formData.evidence_url ? `[Klikni sem pre dôkaz](${formData.evidence_url})` : '*Bez dôkazu*', inline: true },
+                  { name: '⏳ Expirácia', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentný', inline: true }
                 ],
+                footer: {
+                  text: 'Systém trestov | GenK'
+                },
                 timestamp: new Date().toISOString()
               }]
             })
@@ -1759,8 +1760,14 @@ export default function App() {
 
       {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={() => setIsModalOpen(false)}
+        >
+          <div 
+            className="bg-zinc-900 border border-zinc-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30">
               <h2 className="text-lg font-bold">
                 {editingItem ? 'Upraviť' : 'Pridať'} {
