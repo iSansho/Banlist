@@ -1,5 +1,5 @@
 {
-  "name": "RedM Admin Panel",
+  "name": "Genk Admin Panel",
   "description": "Interný systém na správu trestov (Banlist) pre RedM RP server s Discord autentifikáciou.",
   "requestFramePermissions": []
 }

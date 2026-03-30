@@ -14,8 +14,8 @@ export type PunishmentType = 'WARN' | 'BAN' | 'WL-DOWN' | 'SUSPEND';
 export interface Punishment {
   id: string;
   created_at: string;
-  target_id: string;
-  target_name: string;
+  discord_id: string;
+  discord_username: string;
   type: PunishmentType;
   reason: string;
   details: string;
@@ -23,6 +23,48 @@ export interface Punishment {
   expires_at: string | null;
   admin_discord_id: string;
   admin_name: string;
+}
+
+export interface Wanted {
+  id: string;
+  created_at: string;
+  description: string;
+  discord_id: string;
+  discord_username: string;
+  danger_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
+  status: 'ACTIVE' | 'CAPTURED' | 'DECEASED';
+  whitelist_status: 'DENIED' | 'ALLOWED' | 'NONE';
+  admin_name: string;
+}
+
+export interface Bug {
+  id: string;
+  created_at: string;
+  title: string;
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'OPEN' | 'IN_PROGRESS' | 'FIXED' | 'CLOSED';
+  reporter_name: string;
+}
+
+export interface Meeting {
+  id: string;
+  created_at: string;
+  title: string;
+  description: string;
+  scheduled_at: string;
+  location: string;
+  organizer_name: string;
+}
+
+export interface Log {
+  id: string;
+  created_at: string;
+  admin_name: string;
+  admin_discord_id: string;
+  action: string;
+  target_name: string;
+  details: string;
 }
 
 export const PUNISHMENT_REASONS = [
