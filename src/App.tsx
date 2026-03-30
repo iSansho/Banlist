@@ -96,26 +96,30 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      
-      if (currentUser) {
-        await checkAdminStatus(currentUser);
-        // Only fetch data if they are actually an admin
-        // The checkAdminStatus function updates the state, but we need to check the DB directly here
-        // to prevent fetching data before the state updates
-        const providerId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
-        const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-        const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-        const isUserAdmin = !!data || whitelist.includes(providerId);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+        
+        if (currentUser) {
+          await checkAdminStatus(currentUser);
+          // Only fetch data if they are actually an admin
+          // The checkAdminStatus function updates the state, but we need to check the DB directly here
+          // to prevent fetching data before the state updates
+          const providerId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
+          const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+          const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+          const isUserAdmin = !!data || whitelist.includes(providerId);
 
-        if (isUserAdmin) {
-          await fetchData();
-          fetchDiscordMembers();
-          fetchPunishmentReasons();
+          if (isUserAdmin) {
+            await fetchData();
+            fetchDiscordMembers();
+            fetchPunishmentReasons();
+          }
         }
-      } else {
+      } catch (error) {
+        console.error("Auth init error:", error);
+      } finally {
         setLoading(false);
       }
     };
@@ -715,7 +719,7 @@ export default function App() {
     }
   };
 
-  if (loading && !user) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
