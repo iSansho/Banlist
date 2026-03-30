@@ -118,7 +118,12 @@ export default function App() {
       }
     } catch (error: any) {
       console.error('Error fetching Discord members:', error);
-      const msg = error.response?.data?.error || error.message;
+      let msg = error.message;
+      if (error.response?.data) {
+        msg = typeof error.response.data === 'string' 
+          ? error.response.data 
+          : (error.response.data.error || JSON.stringify(error.response.data));
+      }
       setDiscordError(`Chyba pripojenia k Discord API: ${msg}`);
     } finally {
       setIsDiscordLoading(false);
