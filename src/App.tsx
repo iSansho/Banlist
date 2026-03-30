@@ -20,6 +20,7 @@ import {
   History,
   Settings,
   ChevronLeft,
+  ChevronRight,
   LayoutDashboard,
   AlertCircle
 } from 'lucide-react';
@@ -42,7 +43,13 @@ export default function App() {
   const [logs, setLogs] = useState<Log[]>([]);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [wantedSearchTerm, setWantedSearchTerm] = useState('');
+  const [bugsSearchTerm, setBugsSearchTerm] = useState('');
+  const [logsSearchTerm, setLogsSearchTerm] = useState('');
+  const [meetingsSearchTerm, setMeetingsSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [wantedFilter, setWantedFilter] = useState<string>('ALL');
+  const [bugsFilter, setBugsFilter] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
 
@@ -390,9 +397,33 @@ export default function App() {
   });
 
   const filteredWanted = wantedList.filter(w => {
-    const matchesSearch = (w.discord_username?.toLowerCase().includes(searchTerm.toLowerCase()) || false) || 
-                         (w.discord_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-                         (w.description?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+    const matchesSearch = (w.discord_username?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false) || 
+                         (w.discord_id?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false) ||
+                         (w.description?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false);
+    const matchesStatus = wantedFilter === 'ALL' || w.status === wantedFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredBugs = bugs.filter(b => {
+    const matchesSearch = (b.title?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false) || 
+                         (b.description?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false) ||
+                         (b.reporter_name?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false);
+    const matchesStatus = bugsFilter === 'ALL' || b.status === bugsFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredLogs = logs.filter(l => {
+    const matchesSearch = (l.admin_name?.toLowerCase().includes(logsSearchTerm.toLowerCase()) || false) || 
+                         (l.action?.toLowerCase().includes(logsSearchTerm.toLowerCase()) || false) ||
+                         (l.target_name?.toLowerCase().includes(logsSearchTerm.toLowerCase()) || false) ||
+                         (l.details?.toLowerCase().includes(logsSearchTerm.toLowerCase()) || false);
+    return matchesSearch;
+  });
+
+  const filteredMeetings = meetings.filter(m => {
+    const matchesSearch = (m.title?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) || 
+                         (m.description?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) ||
+                         (m.location?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false);
     return matchesSearch;
   });
 
@@ -546,140 +577,100 @@ export default function App() {
             <div className="text-center space-y-2 mb-12">
               <h2 className="text-4xl font-black tracking-tight">Vitajte, {user.user_metadata?.full_name?.split(' ')[0] || 'Admin'}</h2>
               <p className="text-zinc-500">Vyberte sekciu, ktorú chcete spravovať.</p>
+              
+              {isAdmin && (
+                <div className="flex items-center justify-center gap-3 mt-8">
+                  <button 
+                    onClick={() => { setActiveSection('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-red-600/10 border border-red-600/20 rounded-full text-red-500 text-[10px] font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white transition-all"
+                  >
+                    <Plus className="w-3 h-3" /> Rýchly Ban
+                  </button>
+                  <button 
+                    onClick={() => { setActiveSection('WANTED'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-orange-600/10 border border-orange-600/20 rounded-full text-orange-500 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-600 hover:text-white transition-all"
+                  >
+                    <Plus className="w-3 h-3" /> Rýchly Wanted
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-              {/* Quick Action: New Ban */}
-              {isAdmin && (
-                <button 
-                  onClick={() => { setActiveSection('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="group relative bg-red-600/5 border border-red-600/20 p-8 rounded-3xl hover:bg-red-600 hover:border-red-600 transition-all text-left overflow-hidden"
-                >
-                  <div className="relative z-10">
-                    <div className="bg-red-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-white/20 transition-all">
-                      <Plus className="w-6 h-6 text-red-500 group-hover:text-white" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 group-hover:text-white">Pridať Ban</h3>
-                    <p className="text-zinc-500 text-sm group-hover:text-red-100">Rýchle udelenie nového trestu.</p>
-                  </div>
-                </button>
-              )}
-
-              {/* Quick Action: New Wanted */}
-              {isAdmin && (
-                <button 
-                  onClick={() => { setActiveSection('WANTED'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="group relative bg-orange-600/5 border border-orange-600/20 p-8 rounded-3xl hover:bg-orange-600 hover:border-orange-600 transition-all text-left overflow-hidden"
-                >
-                  <div className="relative z-10">
-                    <div className="bg-orange-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-white/20 transition-all">
-                      <Plus className="w-6 h-6 text-orange-500 group-hover:text-white" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 group-hover:text-white">Pridať Wanted</h3>
-                    <p className="text-zinc-500 text-sm group-hover:text-orange-100">Zápis novej hľadanej osoby.</p>
-                  </div>
-                </button>
-              )}
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* Banlist Card */}
               <button 
                 onClick={() => setActiveSection('BANLIST')}
-                className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-3xl hover:border-red-600/50 transition-all text-left overflow-hidden"
+                className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-red-600/50 transition-all text-left"
               >
-                <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <Ban className="w-24 h-24 text-red-600" />
-                </div>
-                <div className="relative z-10">
-                  <div className="bg-red-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-red-600 group-hover:text-white transition-all">
-                    <Ban className="w-6 h-6 text-red-500 group-hover:text-white" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="bg-red-600/10 p-2 rounded-xl group-hover:bg-red-600 transition-all">
+                    <Ban className="w-5 h-5 text-red-500 group-hover:text-white" />
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Banlist</h3>
-                  <p className="text-zinc-500 text-sm">Správa trestov, banov a varovaní pre hráčov.</p>
-                  <div className="mt-6 flex items-center gap-2 text-xs font-bold text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                    Otvoriť sekciu <ChevronLeft className="w-4 h-4 rotate-180" />
-                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
+                <h3 className="text-base font-bold">Banlist</h3>
+                <p className="text-zinc-500 text-xs mt-1">Správa trestov, banov a varovaní pre hráčov.</p>
               </button>
 
               {/* Wanted Card */}
               <button 
                 onClick={() => setActiveSection('WANTED')}
-                className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-3xl hover:border-orange-600/50 transition-all text-left overflow-hidden"
+                className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-orange-600/50 transition-all text-left"
               >
-                <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <Users className="w-24 h-24 text-orange-600" />
-                </div>
-                <div className="relative z-10">
-                  <div className="bg-orange-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-orange-600 group-hover:text-white transition-all">
-                    <Users className="w-6 h-6 text-orange-500 group-hover:text-white" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="bg-orange-600/10 p-2 rounded-xl group-hover:bg-orange-600 transition-all">
+                    <Users className="w-5 h-5 text-orange-500 group-hover:text-white" />
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Wanted</h3>
-                  <p className="text-zinc-500 text-sm">Zoznam hľadaných osôb a nebezpečných subjektov.</p>
-                  <div className="mt-6 flex items-center gap-2 text-xs font-bold text-orange-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                    Otvoriť sekciu <ChevronLeft className="w-4 h-4 rotate-180" />
-                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
+                <h3 className="text-base font-bold">Wanted</h3>
+                <p className="text-zinc-500 text-xs mt-1">Zoznam hľadaných osôb a nebezpečných subjektov.</p>
               </button>
 
               {/* Bugs Card */}
               <button 
                 onClick={() => setActiveSection('BUGS')}
-                className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-3xl hover:border-blue-600/50 transition-all text-left overflow-hidden"
+                className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-blue-600/50 transition-all text-left"
               >
-                <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <BugIcon className="w-24 h-24 text-blue-600" />
-                </div>
-                <div className="relative z-10">
-                  <div className="bg-blue-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-blue-600 group-hover:text-white transition-all">
-                    <BugIcon className="w-6 h-6 text-blue-500 group-hover:text-white" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="bg-blue-600/10 p-2 rounded-xl group-hover:bg-blue-600 transition-all">
+                    <BugIcon className="w-5 h-5 text-blue-500 group-hover:text-white" />
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Bugs</h3>
-                  <p className="text-zinc-500 text-sm">Hlásenia chýb a technických problémov servera.</p>
-                  <div className="mt-6 flex items-center gap-2 text-xs font-bold text-blue-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                    Otvoriť sekciu <ChevronLeft className="w-4 h-4 rotate-180" />
-                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
+                <h3 className="text-base font-bold">Bugs</h3>
+                <p className="text-zinc-500 text-xs mt-1">Hlásenia chýb a technických problémov servera.</p>
               </button>
 
               {/* Meetings Card */}
               <button 
                 onClick={() => setActiveSection('MEETINGS')}
-                className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-3xl hover:border-purple-600/50 transition-all text-left overflow-hidden"
+                className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-purple-600/50 transition-all text-left"
               >
-                <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <Calendar className="w-24 h-24 text-purple-600" />
-                </div>
-                <div className="relative z-10">
-                  <div className="bg-purple-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-purple-600 group-hover:text-white transition-all">
-                    <Calendar className="w-6 h-6 text-purple-500 group-hover:text-white" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="bg-purple-600/10 p-2 rounded-xl group-hover:bg-purple-600 transition-all">
+                    <Calendar className="w-5 h-5 text-purple-500 group-hover:text-white" />
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Meetings</h3>
-                  <p className="text-zinc-500 text-sm">Plánované porady a dôležité stretnutia tímu.</p>
-                  <div className="mt-6 flex items-center gap-2 text-xs font-bold text-purple-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                    Otvoriť sekciu <ChevronLeft className="w-4 h-4 rotate-180" />
-                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
+                <h3 className="text-base font-bold">Meetings</h3>
+                <p className="text-zinc-500 text-xs mt-1">Plánované porady a dôležité stretnutia tímu.</p>
               </button>
 
               {/* Logs Card (Admin Only) */}
               {isAdmin && (
                 <button 
                   onClick={() => setActiveSection('LOGS')}
-                  className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-3xl hover:border-zinc-500/50 transition-all text-left overflow-hidden"
+                  className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-zinc-500/50 transition-all text-left"
                 >
-                  <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <History className="w-24 h-24 text-zinc-600" />
-                  </div>
-                  <div className="relative z-10">
-                    <div className="bg-zinc-600/10 p-3 rounded-2xl w-fit mb-6 group-hover:bg-zinc-600 group-hover:text-white transition-all">
-                      <History className="w-6 h-6 text-zinc-500 group-hover:text-white" />
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="bg-zinc-600/10 p-2 rounded-xl group-hover:bg-zinc-600 transition-all">
+                      <History className="w-5 h-5 text-zinc-500 group-hover:text-white" />
                     </div>
-                    <h3 className="text-xl font-bold mb-2">Admin Logy</h3>
-                    <p className="text-zinc-500 text-sm">História všetkých akcií vykonaných administrátormi.</p>
-                    <div className="mt-6 flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                      Otvoriť sekciu <ChevronLeft className="w-4 h-4 rotate-180" />
-                    </div>
+                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                   </div>
+                  <h3 className="text-base font-bold">Admin Logy</h3>
+                  <p className="text-zinc-500 text-xs mt-1">História všetkých akcií vykonaných administrátormi.</p>
                 </button>
               )}
             </div>
@@ -687,26 +678,29 @@ export default function App() {
         ) : activeSection === 'BANLIST' ? (
           <>
             {/* Banlist UI (Existing) */}
-            <div className="flex flex-col md:flex-row gap-4 mb-8 items-center justify-between">
-              <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                <div className="relative flex-1 md:w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Hľadať podľa Discordu..." 
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <div className="relative">
-                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
+              <div className="flex items-center gap-4 w-full md:w-auto">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Ban className="w-5 h-5 text-red-500" /> Banlist
+                </h2>
+                <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                  <div className="relative flex-1 md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Hľadať užívateľa..." 
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
                   <select 
-                    className="bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 pl-10 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 appearance-none cursor-pointer"
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all cursor-pointer"
                     value={typeFilter}
                     onChange={(e) => setTypeFilter(e.target.value)}
                   >
-                    <option value="ALL">Všetky typy</option>
+                    <option value="ALL">Všetky</option>
                     <option value="WARN">Warn</option>
                     <option value="BAN">Ban</option>
                     <option value="WL-DOWN">WL-Down</option>
@@ -718,9 +712,9 @@ export default function App() {
               {isAdmin && (
                 <button 
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
+                  className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
                 >
-                  <Plus className="w-4 h-4" /> Pridať Trest
+                  <Plus className="w-3.5 h-3.5" /> Pridať Trest
                 </button>
               )}
             </div>
@@ -730,12 +724,12 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Dôvod</th>
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Expirácia</th>
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                      <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dôvod</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirácia</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
@@ -745,7 +739,7 @@ export default function App() {
                       </tr>
                     ) : filteredPunishments.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
                       </tr>
                     ) : filteredPunishments.map((p) => {
                       const expired = isExpired(p.expires_at);
@@ -755,78 +749,76 @@ export default function App() {
                         <tr 
                           key={p.id} 
                           className={cn(
-                            "group hover:bg-zinc-800/30 transition-colors",
-                            isBan && !expired && "border-l-4 border-l-red-600",
-                            expired && "opacity-60"
+                            "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0",
+                            isBan && !expired && "border-l-2 border-l-red-600",
+                            expired && "opacity-50"
                           )}
                         >
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-zinc-100">{p.discord_username || 'Neznámy'}</div>
-                            <div className="text-xs text-zinc-500 font-mono">{p.discord_id || 'Neznáme'}</div>
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámy'}</div>
+                            <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznáme'}</div>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              {getTypeIcon(p.type)}
-                              <span className="text-sm font-semibold">{p.type}</span>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <div className="scale-75 origin-left">{getTypeIcon(p.type)}</div>
+                              <span className="text-[11px] font-bold tracking-tight">{p.type}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-zinc-300 max-w-xs truncate" title={p.reason}>
+                          <td className="px-4 py-3">
+                            <div className="text-xs text-zinc-300 max-w-[200px] truncate" title={p.reason}>
                               {p.reason}
                             </div>
-                            {p.details && <div className="text-[10px] text-zinc-500 truncate max-w-xs">{p.details}</div>}
+                            {p.details && <div className="text-[9px] text-zinc-500 truncate max-w-[200px] italic">{p.details}</div>}
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2 text-sm">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5 text-[11px]">
                               {p.expires_at ? (
                                 <>
-                                  <Clock className="w-3.5 h-3.5 text-zinc-500" />
-                                  <span className={cn(expired ? "text-zinc-500" : "text-zinc-300")}>
-                                    {format(parseISO(p.expires_at), 'dd.MM.yyyy', { locale: sk })}
+                                  <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
+                                    {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: sk })}
                                   </span>
                                   {expired ? (
-                                    <XCircle className="w-3.5 h-3.5 text-zinc-600" title="Vypršané" />
+                                    <span className="text-[9px] text-zinc-600 font-bold uppercase">EXP</span>
                                   ) : (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500" title="Aktívne" />
+                                    <span className="text-[9px] text-green-500 font-bold uppercase">AKT</span>
                                   )}
                                 </>
                               ) : (
-                                <span className="text-red-500 font-bold text-xs uppercase tracking-tighter">Permanentný</span>
+                                <span className="text-red-500 font-black text-[10px] uppercase tracking-tighter">PERMA</span>
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-zinc-400">{p.admin_name}</div>
-                            <div className="text-[10px] text-zinc-600 font-mono">{p.admin_discord_id}</div>
+                          <td className="px-4 py-3">
+                            <div className="text-[11px] text-zinc-400">{p.admin_name}</div>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               {p.evidence_url && (
                                 <a 
                                   href={p.evidence_url} 
                                   target="_blank" 
                                   rel="noreferrer"
-                                  className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-blue-400 transition-colors"
+                                  className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-blue-400 transition-colors"
                                   title="Dôkaz"
                                 >
-                                  <ExternalLink className="w-4 h-4" />
+                                  <ExternalLink className="w-3.5 h-3.5" />
                                 </a>
                               )}
                               {isAdmin && (
                                 <>
                                   <button 
                                     onClick={() => handleEdit(p)}
-                                    className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                                    className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
                                     title="Upraviť"
                                   >
-                                    <Edit2 className="w-4 h-4" />
+                                    <Edit2 className="w-3.5 h-3.5" />
                                   </button>
                                   <button 
                                     onClick={() => handleDelete(p.id)}
-                                    className="p-1.5 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"
+                                    className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
                                     title="Vymazať"
                                   >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </>
                               )}
@@ -842,222 +834,350 @@ export default function App() {
           </>
         ) : activeSection === 'WANTED' ? (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <Users className="w-6 h-6 text-orange-500" /> Wanted List
-              </h2>
-              <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-                <div className="relative flex-1 md:w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Hľadať v Wanted..." 
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50 transition-all"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                {isAdmin && (
-                  <button 
-                    onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                    className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20"
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
+              <div className="flex items-center gap-4 w-full md:w-auto">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Users className="w-5 h-5 text-orange-500" /> Wanted
+                </h2>
+                <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                  <div className="relative flex-1 md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Hľadať..." 
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all"
+                      value={wantedSearchTerm}
+                      onChange={(e) => setWantedSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all cursor-pointer"
+                    value={wantedFilter}
+                    onChange={(e) => setWantedFilter(e.target.value)}
                   >
-                    <Plus className="w-4 h-4" /> Pridať Hľadaného
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredWanted.map((w) => (
-                <div key={w.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 relative group overflow-hidden">
-                  <div className={cn(
-                    "absolute top-0 right-0 px-4 py-1 text-[10px] font-bold uppercase tracking-widest rounded-bl-xl",
-                    w.danger_level === 'EXTREME' ? "bg-red-600 text-white" :
-                    w.danger_level === 'HIGH' ? "bg-orange-600 text-white" :
-                    w.danger_level === 'MEDIUM' ? "bg-yellow-600 text-black" : "bg-zinc-700 text-zinc-300"
-                  )}>
-                    {w.danger_level}
-                  </div>
-                  <h3 className="text-xl font-bold mb-1">{w.discord_username || w.discord_id || 'Neznámy'}</h3>
-                  <div className="flex flex-col gap-1 mb-4">
-                    {w.discord_username && w.discord_id && <p className="text-xs text-zinc-500 font-mono">ID: {w.discord_id}</p>}
-                  </div>
-                  <p className="text-sm text-zinc-300 mb-6 line-clamp-3">{w.description}</p>
-                  <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
-                    <div className="flex gap-2">
-                      <span className={cn(
-                        "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                        w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
-                      )}>
-                        {w.status}
-                      </span>
-                      {w.whitelist_status !== 'NONE' && (
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                          w.whitelist_status === 'ALLOWED' ? "bg-blue-500/10 text-blue-500" : "bg-red-500/10 text-red-500"
-                        )}>
-                          WL: {w.whitelist_status === 'ALLOWED' ? 'POVOLENÝ' : 'ZAMITNUTÝ'}
-                        </span>
-                      )}
-                    </div>
-                    {isAdmin && (
-                      <div className="flex gap-2">
-                        <button onClick={() => handleEdit(w)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(w.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    <option value="ALL">Všetky</option>
+                    <option value="ACTIVE">Aktívne</option>
+                    <option value="INACTIVE">Neaktívne</option>
+                  </select>
                 </div>
-              ))}
+              </div>
+              {isAdmin && (
+                <button 
+                  onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                  className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Pridať Wanted
+                </button>
+              )}
+            </div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Úroveň</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Popis</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {filteredWanted.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                      </tr>
+                    ) : filteredWanted.map((w) => (
+                      <tr key={w.id} className="hover:bg-zinc-800/30 transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-sm">{w.discord_username || 'Neznámy'}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznáme ID'}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                            w.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
+                            w.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
+                            w.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
+                          )}>
+                            {w.danger_level}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs text-zinc-400 line-clamp-1 max-w-xs">{w.description}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-2">
+                            <span className={cn(
+                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                              w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
+                            )}>
+                              {w.status}
+                            </span>
+                            {w.whitelist_status !== 'NONE' && (
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                                w.whitelist_status === 'ALLOWED' ? "bg-blue-500/10 text-blue-500" : "bg-red-500/10 text-red-500"
+                              )}>
+                                WL: {w.whitelist_status === 'ALLOWED' ? 'OK' : 'KO'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {isAdmin && (
+                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleEdit(w)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => handleDelete(w.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : activeSection === 'BUGS' ? (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <BugIcon className="w-6 h-6 text-blue-500" /> Bug Tracker
-              </h2>
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
+              <div className="flex items-center gap-4 w-full md:w-auto">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <BugIcon className="w-5 h-5 text-blue-500" /> Bugs
+                </h2>
+                <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                  <div className="relative flex-1 md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Hľadať..." 
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                      value={bugsSearchTerm}
+                      onChange={(e) => setBugsSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
+                    value={bugsFilter}
+                    onChange={(e) => setBugsFilter(e.target.value)}
+                  >
+                    <option value="ALL">Všetky</option>
+                    <option value="OPEN">Otvorené</option>
+                    <option value="IN_PROGRESS">V riešení</option>
+                    <option value="FIXED">Opravené</option>
+                  </select>
+                </div>
+              </div>
               {isAdmin && (
                 <button 
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
+                  className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
                 >
-                  <Plus className="w-4 h-4" /> Nahlásiť Bug
+                  <Plus className="w-3.5 h-3.5" /> Nahlásiť Bug
                 </button>
               )}
             </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Priorita</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Názov</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Reportér</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800">
-                  {bugs.map((b) => (
-                    <tr key={b.id} className="hover:bg-zinc-800/30 transition-colors">
-                      <td className="px-6 py-4">
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                          b.priority === 'HIGH' ? "bg-red-500/10 text-red-500" :
-                          b.priority === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-blue-500/10 text-blue-500"
-                        )}>
-                          {b.priority}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium">{b.title}</div>
-                        <div className="text-xs text-zinc-500 truncate max-w-xs">{b.description}</div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-semibold text-zinc-400">{b.status}</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-zinc-500">{b.reporter_name}</td>
-                      <td className="px-6 py-4 text-right">
-                        {isAdmin && (
-                          <div className="flex justify-end gap-2">
-                            <button onClick={() => handleEdit(b)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleDelete(b.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Priorita</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Názov</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Reportér</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {filteredBugs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                      </tr>
+                    ) : filteredBugs.map((b) => (
+                      <tr key={b.id} className="hover:bg-zinc-800/30 transition-colors group">
+                        <td className="px-4 py-3">
+                          <span className={cn(
+                            "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded",
+                            b.priority === 'HIGH' ? "bg-red-500/10 text-red-500" :
+                            b.priority === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-blue-500/10 text-blue-500"
+                          )}>
+                            {b.priority}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-medium text-zinc-200">{b.title}</div>
+                          <p className="text-[10px] text-zinc-500 line-clamp-1">{b.description}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={cn(
+                            "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded",
+                            b.status === 'FIXED' ? "bg-green-500/10 text-green-500" :
+                            b.status === 'IN_PROGRESS' ? "bg-blue-500/10 text-blue-500" : "bg-zinc-800 text-zinc-500"
+                          )}>
+                            {b.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-zinc-400">{b.reporter_name}</td>
+                        <td className="px-4 py-3 text-right">
+                          {isAdmin && (
+                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleEdit(b)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors">
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDelete(b.id)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : activeSection === 'MEETINGS' ? (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <Calendar className="w-6 h-6 text-purple-500" /> Meetings
-              </h2>
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
+              <div className="flex items-center gap-4 w-full md:w-auto">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-purple-500" /> Meetings
+                </h2>
+                <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+                <div className="relative flex-1 md:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                  <input 
+                    type="text" 
+                    placeholder="Hľadať meeting..." 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-purple-500 outline-none transition-all"
+                    value={meetingsSearchTerm}
+                    onChange={(e) => setMeetingsSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
               {isAdmin && (
                 <button 
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
+                  className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
                 >
-                  <Plus className="w-4 h-4" /> Naplánovať Meeting
+                  <Plus className="w-3.5 h-3.5" /> Naplánovať Meeting
                 </button>
               )}
             </div>
-            <div className="space-y-4">
-              {meetings.map((m) => (
-                <div key={m.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col md:flex-row gap-6 items-start md:items-center">
-                  <div className="bg-zinc-800 p-4 rounded-2xl text-center min-w-[100px]">
-                    <div className="text-xs font-bold text-purple-500 uppercase tracking-widest mb-1">
-                      {format(parseISO(m.scheduled_at), 'MMM', { locale: sk })}
-                    </div>
-                    <div className="text-2xl font-black">{format(parseISO(m.scheduled_at), 'dd')}</div>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <h3 className="text-xl font-bold">{m.title}</h3>
-                    <p className="text-sm text-zinc-500 flex items-center gap-4">
-                      <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {format(parseISO(m.scheduled_at), 'HH:mm')}</span>
-                      <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> {m.location}</span>
-                    </p>
-                    <p className="text-sm text-zinc-400 pt-2">{m.description}</p>
-                  </div>
-                  {isAdmin && (
-                    <div className="flex gap-2">
-                      <button onClick={() => handleEdit(m)} className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-colors border border-zinc-800">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleDelete(m.id)} className="p-2 hover:bg-zinc-800 rounded-xl text-zinc-500 hover:text-red-500 transition-colors border border-zinc-800">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Názov</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Lokalita</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {filteredMeetings.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                      </tr>
+                    ) : filteredMeetings.map((m) => (
+                      <tr key={m.id} className="hover:bg-zinc-800/30 transition-colors group">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-purple-500 uppercase">{format(parseISO(m.scheduled_at), 'MMM', { locale: sk })}</span>
+                            <span className="text-lg font-black leading-none">{format(parseISO(m.scheduled_at), 'dd')}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-zinc-300 font-mono">
+                          {format(parseISO(m.scheduled_at), 'HH:mm')}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-bold text-zinc-100">{m.title}</div>
+                          <p className="text-[10px] text-zinc-500 line-clamp-1">{m.description}</p>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-zinc-400">
+                          {m.location}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {isAdmin && (
+                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleEdit(m)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors">
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDelete(m.id)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : activeSection === 'LOGS' ? (
           isAdmin ? (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold flex items-center gap-3">
-                  <History className="w-6 h-6 text-red-500" /> Admin Logy
-                </h2>
+              <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <History className="w-5 h-5 text-red-500" /> Admin Logy
+                  </h2>
+                  <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+                  <div className="relative flex-1 md:w-80">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      placeholder="Hľadať v logoch..." 
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
+                      value={logsSearchTerm}
+                      onChange={(e) => setLogsSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                        <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
-                        <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                        <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Akcia</th>
-                        <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Cieľ</th>
-                        <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Detaily</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akcia</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cieľ</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Detaily</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800">
-                      {logs.map((log) => (
+                      {filteredLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        </tr>
+                      ) : filteredLogs.map((log) => (
                         <tr key={log.id} className="hover:bg-zinc-800/30 transition-colors">
-                          <td className="px-6 py-4 text-xs text-zinc-500 font-mono">
-                            {format(parseISO(log.created_at), 'dd.MM HH:mm:ss')}
+                          <td className="px-4 py-3 text-[10px] text-zinc-500 font-mono">
+                            {format(parseISO(log.created_at), 'dd.MM HH:mm')}
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm font-medium">{log.admin_name}</div>
-                            <div className="text-[10px] text-zinc-600 font-mono">{log.admin_discord_id}</div>
+                          <td className="px-4 py-3">
+                            <div className="text-xs font-bold">{log.admin_name}</div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3">
                             <span className={cn(
-                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                              "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded",
                               log.action.includes('Vymazaný') ? "bg-red-500/10 text-red-500" : 
                               log.action.includes('Upravený') ? "bg-blue-500/10 text-blue-500" : 
                               "bg-green-500/10 text-green-500"
@@ -1065,8 +1185,8 @@ export default function App() {
                               {log.action}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-zinc-300">{log.target_name}</td>
-                          <td className="px-6 py-4 text-xs text-zinc-500">{log.details}</td>
+                          <td className="px-4 py-3 text-xs text-zinc-300">{log.target_name}</td>
+                          <td className="px-4 py-3 text-[10px] text-zinc-500 italic truncate max-w-xs">{log.details}</td>
                         </tr>
                       ))}
                     </tbody>
