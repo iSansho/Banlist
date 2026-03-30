@@ -94,52 +94,81 @@ export default function App() {
   });
 
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
+    let mounted = true;
+
+    const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const currentUser = session?.user ?? null;
+        
+        if (!mounted) return;
         setUser(currentUser);
         
         if (currentUser) {
-          await checkAdminStatus(currentUser);
-          // Only fetch data if they are actually an admin
-          // The checkAdminStatus function updates the state, but we need to check the DB directly here
-          // to prevent fetching data before the state updates
-          const rawProviderId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
-          const providerId = String(rawProviderId).trim();
-          const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-          const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-          const isUserAdmin = !!data || whitelist.includes(providerId);
-
-          if (isUserAdmin) {
-            await fetchData();
-            fetchDiscordMembers();
-            fetchPunishmentReasons();
-          }
+          await verifyAndFetchData(currentUser);
+        } else {
+          setIsAdmin(false);
+          setLoading(false);
         }
       } catch (error) {
         console.error("Auth init error:", error);
-      } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
 
-    init();
+    initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      
       const currentUser = session?.user ?? null;
       setUser(currentUser);
-      if (currentUser) {
-        await checkAdminStatus(currentUser);
-      } else {
+      
+      if (event === 'SIGNED_IN' && currentUser) {
+        setLoading(true);
+        await verifyAndFetchData(currentUser);
+      } else if (event === 'SIGNED_OUT' || !currentUser) {
         setIsAdmin(false);
         setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const verifyAndFetchData = async (currentUser: any) => {
+    try {
+      const rawProviderId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
+      const providerId = String(rawProviderId).trim();
+      
+      console.log("Verifying admin status for provider ID:", providerId);
+      
+      const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+      
+      if (error) {
+        console.error("Error checking admin status:", error);
+      }
+      
+      const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+      const isUserAdmin = !!data || whitelist.includes(providerId);
+      
+      setIsAdmin(isUserAdmin);
+
+      if (isUserAdmin) {
+        await fetchData();
+        fetchDiscordMembers();
+        fetchPunishmentReasons();
+      }
+    } catch (e) {
+      console.error("Exception in verifyAndFetchData:", e);
+      setIsAdmin(false);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchPunishmentReasons = async () => {
     const { data, error } = await supabase
@@ -188,44 +217,25 @@ export default function App() {
     }
   };
 
+  // checkAdminStatus is now integrated into verifyAndFetchData
+  // Keeping a simplified version if it's called from elsewhere, though it shouldn't be needed
   const checkAdminStatus = async (user: any) => {
     if (!user) {
       setIsAdmin(false);
-      setLoading(false);
       return;
     }
-    
-    // Check if user is in admins table
-    // Supabase can store the provider ID in different places depending on the exact auth flow
     const rawProviderId = user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id;
     const providerId = String(rawProviderId).trim();
-    
-    console.log("Checking admin status for provider ID:", providerId);
-    
     try {
-      const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-      
-      if (error) {
-        console.error("Error checking admin status:", error);
-      }
-      
-      if (data) {
-        setIsAdmin(true);
-      } else {
-        // Fallback to env whitelist for initial setup
-        const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-        setIsAdmin(whitelist.includes(providerId));
-      }
+      const { data } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+      const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
+      setIsAdmin(!!data || whitelist.includes(providerId));
     } catch (e) {
-      console.error("Exception in checkAdminStatus:", e);
       setIsAdmin(false);
-    } finally {
-      setLoading(false);
     }
   };
 
   const fetchData = async () => {
-    setLoading(true);
     try {
       await Promise.all([
         fetchPunishments(),
@@ -237,8 +247,6 @@ export default function App() {
       ]);
     } catch (error) {
       console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
