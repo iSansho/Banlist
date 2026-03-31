@@ -18,30 +18,38 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Middleware to check admin status
 const requireAdmin = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
+  if (!authHeader) return res.status(401).json({ error: "Chýba autorizácia" });
 
   const token = authHeader.split(" ")[1];
+  
+  // Overíme token priamo cez Supabase
   const { data: { user }, error } = await supabase.auth.getUser(token);
   
-  if (error || !user) return res.status(401).json({ error: "Unauthorized" });
+  if (error || !user) return res.status(401).json({ error: "Neplatný token" });
 
+  // Získame ID (provider_id pre Discord, alebo id pre Email)
   const providerId = user.user_metadata?.provider_id || user.id;
-  
+  const userEmail = user.email;
+
+  // 1. Kontrola Superadmina podľa emailu
+  if (userEmail === 'Floutic@gmail.com') {
+    req.user = user;
+    return next();
+  }
+
+  // 2. Kontrola v DB podľa ID (pre Discord užívateľov)
   const { data: adminData } = await supabase
     .from("admins")
     .select("*")
     .eq("discord_id", providerId)
-    .single();
+    .maybeSingle();
 
-  const whitelist = process.env.VITE_ADMIN_WHITELIST?.split(",") || [];
-  const isWhitelisted = whitelist.includes(providerId);
-
-  if (!adminData && !isWhitelisted) {
-    return res.status(403).json({ error: "Forbidden: Admins only" });
+  if (adminData) {
+    req.user = user;
+    return next();
   }
 
-  req.user = user;
-  next();
+  return res.status(403).json({ error: "Prístup zamietnutý: Nie ste admin" });
 };
 
 // Health check

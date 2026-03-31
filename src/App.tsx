@@ -179,31 +179,28 @@ export default function App() {
     setIsDiscordLoading(true);
     setDiscordError(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Získame aktuálnu session, aby sme mali čerstvý token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        throw new Error("Nepodarilo sa získať prístupový token. Skúste sa znova prihlásiť.");
+      }
+
       const response = await axios.get('/api/discord/members', {
         headers: {
-          Authorization: `Bearer ${session?.access_token}`
+          // Dôležité: Posielame prístupový token v hlavičke
+          Authorization: `Bearer ${session.access_token}`
         }
       });
+
       if (Array.isArray(response.data)) {
         setDiscordMembers(response.data);
       } else {
-        setDiscordError('Server vrátil neplatná data (pravděpodobně chyba směrování na Vercelu).');
+        setDiscordError('Server vrátil neplatný formát dát.');
       }
     } catch (error: any) {
-      console.error('Error fetching Discord members:', error);
-      let msg = error.message;
-      if (error.response?.data) {
-        const data = error.response.data;
-        if (typeof data === 'string') {
-          msg = data;
-        } else if (data.error && typeof data.error === 'string') {
-          msg = data.error;
-        } else {
-          msg = JSON.stringify(data);
-        }
-      }
-      setDiscordError(`Chyba připojení k Discord API: ${msg}`);
+      console.error('Chyba pri načítaní členov:', error);
+      setDiscordError(error.response?.data?.error || error.message);
     } finally {
       setIsDiscordLoading(false);
     }
