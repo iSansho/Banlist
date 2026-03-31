@@ -1426,12 +1426,12 @@ export default function App() {
                                   {p.expires_at ? (
                                     <>
                                       <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
-                                        {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: cs })}
+                                        {format(parseISO(p.expires_at), 'dd.MM.yy HH:mm', { locale: cs })}
                                       </span>
                                       {expired ? (
-                                        <span className="text-[9px] text-zinc-600 font-bold uppercase">EXP</span>
+                                        <span className="text-[9px] text-zinc-600 font-bold uppercase">SKONČIL</span>
                                       ) : (
-                                        <span className="text-[9px] text-green-500 font-bold uppercase">AKT</span>
+                                        <span className="text-[9px] text-green-500 font-bold uppercase">AKTIVNÍ</span>
                                       )}
                                     </>
                                   ) : (
@@ -2527,7 +2527,7 @@ export default function App() {
                       "text-[10px] font-bold uppercase mt-0.5",
                       isExpired(viewingPunishment.expires_at) ? "text-zinc-600" : "text-green-500"
                     )}>
-                      {isExpired(viewingPunishment.expires_at) ? 'Vypršel' : 'Aktivní'}
+                      {isExpired(viewingPunishment.expires_at) ? 'Trest vypršel' : 'Aktivní trest'}
                     </p>
                   )}
                 </div>
