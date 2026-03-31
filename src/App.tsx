@@ -9,6 +9,7 @@ import {
   Plus, 
   LogOut, 
   Shield, 
+  ShieldCheck,
   AlertTriangle, 
   Ban, 
   UserMinus, 
@@ -29,7 +30,6 @@ import {
   ChevronRight,
   LayoutDashboard,
   AlertCircle,
-  ShieldCheck,
   UserPlus,
   FileText,
   Gavel,
@@ -114,14 +114,16 @@ export default function App() {
       if (!mounted) return;
       
       const currentUser = session?.user ?? null;
+      console.log(`Auth event: ${event}`, currentUser?.id);
       
-      // Pokud URL obsahuje hash s tokenem, odstraníme ho pro čistější URL
-      if (window.location.hash && window.location.hash.includes('access_token')) {
+      // Pokud URL obsahuje hash (často po přesměrování z Discordu), vyčistíme ho
+      if (window.location.hash) {
+        // Odstraníme hash pro čistější URL, ale zachováme zbytek
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
       
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentUser) {
-        // Only set loading to true if we don't have a user yet
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && currentUser) {
+        // Pokud už uživatele máme a jen se aktualizoval, nemusíme nutně ukazovat loading
         if (!user) {
           setLoading(true);
         }
@@ -151,39 +153,50 @@ export default function App() {
       
       console.log("Verifying admin status for provider ID:", providerId);
       
-      const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-      
-      if (error) {
-        console.error("Error checking admin status:", error);
-      }
-      
+      // 1. Nejdříve zkontrolujeme hardcoded whitelist a majitele (okamžitý výsledek)
       const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-      const isUserAdmin = !!data || 
-                         whitelist.includes(providerId) || 
-                         currentUser.email === 'Floutic@gmail.com' || 
-                         currentUser.user_metadata?.email === 'Floutic@gmail.com' ||
-                         providerId === '325261048103829515' ||
-                         currentUser.id === '325261048103829515' ||
-                         currentUser.user_metadata?.full_name?.toLowerCase().includes('sansho') ||
-                         currentUser.user_metadata?.name?.toLowerCase().includes('sansho');
+      const isHardcodedAdmin = whitelist.includes(providerId) || 
+                              currentUser.email === 'Floutic@gmail.com' || 
+                              currentUser.user_metadata?.email === 'Floutic@gmail.com' ||
+                              providerId === '325261048103829515' ||
+                              currentUser.id === '325261048103829515' ||
+                              currentUser.user_metadata?.full_name?.toLowerCase().includes('sansho') ||
+                              currentUser.user_metadata?.name?.toLowerCase().includes('sansho');
+      
+      let isUserAdmin = isHardcodedAdmin;
+
+      // 2. Pokud není v hardcoded seznamu, zkusíme databázi
+      if (!isUserAdmin) {
+        const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
+        if (error) {
+          console.error("Error checking admin status:", error);
+        }
+        if (data) {
+          isUserAdmin = true;
+        }
+      }
       
       console.log("Admin check result:", isUserAdmin, "for ID:", providerId);
       setIsAdmin(isUserAdmin);
 
       if (isUserAdmin) {
-        try {
-          await fetchData();
-          fetchDiscordMembers();
-          fetchPunishmentReasons();
-        } catch (fetchError) {
-          console.error("Error fetching initial data:", fetchError);
-          // Don't reset isAdmin here, let the app render even with partial data if possible
-        }
+        // Spustíme načítání dat, ale nečekáme na něj pro nastavení isAdmin
+        // Tím urychlíme zobrazení panelu
+        const loadData = async () => {
+          try {
+            await Promise.all([
+              fetchData(),
+              fetchDiscordMembers(),
+              fetchPunishmentReasons()
+            ]);
+          } catch (fetchError) {
+            console.error("Error fetching initial data:", fetchError);
+          }
+        };
+        loadData();
       }
     } catch (e) {
       console.error("Exception in verifyAndFetchData:", e);
-      // Only reset if we are sure it's an auth/admin check failure
-      // But for safety, we'll keep a fallback
     } finally {
       setLoading(false);
       isVerifyingRef.current = false;
@@ -619,9 +632,9 @@ export default function App() {
               'Authorization': `Bearer ${session?.access_token}`
             },
             body: JSON.stringify({
+              content: `Hráč ${formData.discord_id ? `<@${formData.discord_id}>` : `**${formData.discord_username || 'Neznámý'}**`} dostal trest od administrátora ${adminDiscordId ? `<@${adminDiscordId}>` : `**${adminName}**`}.`,
               embeds: [{
                 title: `${emoji} ${actionText} Trest | ${formData.type}`,
-                description: `Hráč **${formData.discord_username || 'Neznámý'}** dostal trest od administrátora **${adminName}**.`,
                 color: embedColor,
                 fields: [
                   { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
@@ -861,6 +874,14 @@ export default function App() {
                   <span className="text-[10px] opacity-50">ID: {user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id}</span>
                 </p>
                 <div className="space-y-3">
+                  <button 
+                    onClick={() => {
+                      if (user) verifyAndFetchData(user);
+                    }}
+                    className="w-full bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 border border-indigo-500/20"
+                  >
+                    <ShieldCheck className="w-5 h-5" /> Zkontrolovat oprávnění znovu
+                  </button>
                   <button 
                     onClick={handleLogout}
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3"
