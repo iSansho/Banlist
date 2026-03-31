@@ -65,6 +65,7 @@ export default function App() {
   const [bugsFilter, setBugsFilter] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -108,7 +109,6 @@ export default function App() {
       if (!mounted) return;
       
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
       
       // Pokud URL obsahuje hash s tokenem, odstraníme ho pro čistější URL
       if (window.location.hash && window.location.hash.includes('access_token')) {
@@ -116,9 +116,14 @@ export default function App() {
       }
       
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentUser) {
-        setLoading(true);
+        // Only set loading to true if we don't have a user yet or if we are not already an admin
+        if (!user || !isAdmin) {
+          setLoading(true);
+        }
+        setUser(currentUser);
         await verifyAndFetchData(currentUser);
       } else if (event === 'SIGNED_OUT' || !currentUser) {
+        setUser(null);
         setIsAdmin(false);
         setLoading(false);
       }
@@ -590,6 +595,9 @@ export default function App() {
       setIsModalOpen(false);
       setEditingItem(null);
       resetForm();
+      if (activeSection !== 'BANLIST' && table === 'punishments') {
+        setActiveSection('BANLIST');
+      }
       await fetchData();
   };
 
@@ -1291,8 +1299,9 @@ export default function App() {
                       return (
                         <tr 
                           key={p.id} 
+                          onClick={() => setViewingPunishment(p)}
                           className={cn(
-                            "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0",
+                            "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0 cursor-pointer",
                             isBan && !expired && "border-l-2 border-l-red-600",
                             expired && "opacity-50"
                           )}
@@ -1334,7 +1343,7 @@ export default function App() {
                           <td className="px-4 py-3">
                             <div className="text-[11px] text-zinc-400">{p.admin_name}</div>
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               {p.evidence_url && (
                                 <a 
@@ -2198,6 +2207,110 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Punishment Details Modal */}
+      {viewingPunishment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-600/10 p-2 rounded-xl">
+                  <FileText className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Detail Trestu</h2>
+                  <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">ID: {viewingPunishment.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingPunishment(null)}
+                className="p-2 hover:bg-zinc-700 rounded-full transition-colors text-zinc-400 hover:text-white"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Hráč</label>
+                  <p className="text-lg font-bold text-zinc-100">{viewingPunishment.discord_username || 'Neznámý'}</p>
+                  <p className="text-xs text-zinc-500 font-mono">{viewingPunishment.discord_id || 'Neznámé ID'}</p>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Typ Trestu</label>
+                  <div className="flex items-center gap-2">
+                    {getTypeIcon(viewingPunishment.type)}
+                    <span className="text-lg font-bold">{viewingPunishment.type}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-zinc-800" />
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Důvod</label>
+                <p className="text-zinc-200 font-medium">{viewingPunishment.reason}</p>
+              </div>
+
+              {viewingPunishment.details && (
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Detaily</label>
+                  <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl text-sm text-zinc-400 leading-relaxed italic">
+                    {viewingPunishment.details}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Administrátor</label>
+                  <p className="text-sm font-bold text-zinc-300">{viewingPunishment.admin_name}</p>
+                  <p className="text-[10px] text-zinc-500 font-mono">{viewingPunishment.admin_discord_id}</p>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Expirace</label>
+                  <p className="text-sm font-bold text-zinc-300">
+                    {viewingPunishment.expires_at 
+                      ? format(parseISO(viewingPunishment.expires_at), 'dd.MM.yyyy HH:mm', { locale: cs })
+                      : 'Permanentní'}
+                  </p>
+                  {viewingPunishment.expires_at && (
+                    <p className={cn(
+                      "text-[10px] font-bold uppercase mt-0.5",
+                      isExpired(viewingPunishment.expires_at) ? "text-zinc-600" : "text-green-500"
+                    )}>
+                      {isExpired(viewingPunishment.expires_at) ? 'Vypršel' : 'Aktivní'}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {viewingPunishment.evidence_url && (
+                <div className="pt-4">
+                  <a 
+                    href={viewingPunishment.evidence_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Zobrazit Důkaz
+                  </a>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end">
+              <button 
+                onClick={() => setViewingPunishment(null)}
+                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all text-sm"
+              >
+                Zavřít
+              </button>
+            </div>
           </div>
         </div>
       )}
