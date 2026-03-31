@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format, isAfter, parseISO, addHours, addDays } from 'date-fns';
-import { sk } from 'date-fns/locale';
+import { sk, cs } from 'date-fns/locale';
 import axios from 'axios';
 import { GoogleGenAI } from "@google/genai";
 import { 
@@ -96,7 +96,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    // Bezpečnostný timeout pre prípad, že by sa overovanie zaseklo
+    // Bezpečnostní timeout pro případ, že by se ověřování zaseklo
     const timeoutId = setTimeout(() => {
       if (mounted && loading) {
         console.warn("Auth initialization timed out, forcing load to finish");
@@ -110,7 +110,7 @@ export default function App() {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       
-      // Ak URL obsahuje hash s tokenom, odstránime ho pre čistejšiu URL
+      // Pokud URL obsahuje hash s tokenem, odstraníme ho pro čistější URL
       if (window.location.hash && window.location.hash.includes('access_token')) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
@@ -188,7 +188,7 @@ export default function App() {
       if (Array.isArray(response.data)) {
         setDiscordMembers(response.data);
       } else {
-        setDiscordError('Server vrátil neplatné dáta (pravdepodobne chyba smerovania na Verceli).');
+        setDiscordError('Server vrátil neplatná data (pravděpodobně chyba směrování na Vercelu).');
       }
     } catch (error: any) {
       console.error('Error fetching Discord members:', error);
@@ -203,7 +203,7 @@ export default function App() {
           msg = JSON.stringify(data);
         }
       }
-      setDiscordError(`Chyba pripojenia k Discord API: ${msg}`);
+      setDiscordError(`Chyba připojení k Discord API: ${msg}`);
     } finally {
       setIsDiscordLoading(false);
     }
@@ -288,11 +288,11 @@ export default function App() {
   };
 
   const handleDeleteAdmin = async (id: string, username: string) => {
-    if (!confirm(`Naozaj chcete odobrať prístup adminovi ${username}?`)) return;
+    if (!confirm(`Opravdu chcete odebrat přístup adminovi ${username}?`)) return;
     
     const { error } = await supabase.from('admins').delete().eq('id', id);
     if (!error) {
-      logAction('ODOBRATIE_ADMINA', username, `Admin ${username} bol odobraný zo systému.`);
+      logAction('ODEBRÁNÍ_ADMINA', username, `Admin ${username} byl odebrán ze systému.`);
       fetchAdmins();
     }
   };
@@ -339,7 +339,7 @@ export default function App() {
             ) : null}
             {filtered.length === 0 ? (
               <div className="p-3 text-xs text-zinc-500 text-center">
-                {isDiscordLoading ? 'Načítavam členov...' : 'Žiadni užívatelia nenájdení'}
+                {isDiscordLoading ? 'Načítám členy...' : 'Žádní uživatelé nenalezeni'}
               </div>
             ) : (
               filtered.map((m) => (
@@ -418,13 +418,13 @@ export default function App() {
     switch (activeSection) {
       case 'BANLIST':
         if (!formData.discord_id && !formData.discord_username) {
-          alert('Discord ID alebo Discord Username musí byť vyplnené.');
+          alert('Discord ID nebo Discord Username musí být vyplněno.');
           return;
         }
 
         // Warn Limit Check
         if (formData.type === 'WARN' && activeWarns >= 3) {
-          if (!confirm(`Hráč má už ${activeWarns} aktívne warny. Podľa pravidiel by mal byť 4. trest BAN. Naozaj chcete pokračovať s WARNOM?`)) {
+          if (!confirm(`Hráč má již ${activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN. Opravdu chcete pokračovat s WARNEM?`)) {
             return;
           }
         }
@@ -446,7 +446,7 @@ export default function App() {
         break;
       case 'WANTED':
         if (!formData.discord_id && !formData.discord_username) {
-          alert('Discord ID alebo Discord Username musí byť vyplnené.');
+          alert('Discord ID nebo Discord Username musí být vyplněno.');
           return;
         }
         table = 'wanted';
@@ -465,7 +465,7 @@ export default function App() {
       case 'SETTINGS':
         if (settingsTab === 'ADMINS') {
           if (!formData.discord_id && !formData.discord_username) {
-            alert('Discord ID alebo Discord Username musí byť vyplnené.');
+            alert('Discord ID nebo Discord Username musí být vyplněno.');
             return;
           }
           table = 'admins';
@@ -474,18 +474,18 @@ export default function App() {
             username: formData.discord_username,
             added_by: adminName,
           };
-          logMsg = `Pridaný nový admin: ${formData.discord_username}`;
+          logMsg = `Přidán nový admin: ${formData.discord_username}`;
           targetName = formData.discord_username;
         } else if (settingsTab === 'REASONS') {
           if (!formData.reason) {
-            alert('Názov dôvodu musí byť vyplnený.');
+            alert('Název důvodu musí být vyplněn.');
             return;
           }
           table = 'punishment_reasons';
           payload = {
             label: formData.reason
           };
-          logMsg = `Pridaný nový dôvod: ${formData.reason}`;
+          logMsg = `Přidán nový důvod: ${formData.reason}`;
           targetName = formData.reason;
         }
         break;
@@ -510,7 +510,7 @@ export default function App() {
           location: formData.location,
           organizer_name: adminName,
         };
-        logMsg = `Kedy: ${formData.scheduled_at}, Kde: ${formData.location}`;
+        logMsg = `Kdy: ${formData.scheduled_at}, Kde: ${formData.location}`;
         targetName = formData.title;
         break;
     }
@@ -523,7 +523,7 @@ export default function App() {
           .update(payload)
           .eq('id', editingItem.id);
         error = updateError;
-        if (!error) logAction(`Upravený ${activeSection}`, targetName, logMsg);
+        if (!error) logAction(`Upraven ${activeSection}`, targetName, logMsg);
       } else {
         const { error: insertError } = await supabase
           .from(table)
@@ -537,7 +537,7 @@ export default function App() {
 
     if (error) {
       console.error('Supabase error:', error);
-      alert('Chyba pri ukladaní: ' + (error.message || 'Neznáma chyba'));
+      alert('Chyba při ukládání: ' + (error.message || 'Neznámá chyba'));
       return;
     }
 
@@ -552,7 +552,7 @@ export default function App() {
           
           const embedColor = formData.type === 'BAN' ? 15158332 : (formData.type === 'WARN' ? 16776960 : 15844367);
           const emoji = formData.type === 'BAN' ? '🔨' : (formData.type === 'WARN' ? '⚠️' : '👢');
-          const actionText = editingItem ? 'Upravený' : 'Nový';
+          const actionText = editingItem ? 'Upraven' : 'Nový';
           
           await fetch('/api/webhook', {
             method: 'POST',
@@ -563,19 +563,19 @@ export default function App() {
             body: JSON.stringify({
               embeds: [{
                 title: `${emoji} ${actionText} Trest | ${formData.type}`,
-                description: `Hráč **${formData.discord_username || 'Neznámy'}** dostal trest od administrátora **${adminName}**.`,
+                description: `Hráč **${formData.discord_username || 'Neznámý'}** dostal trest od administrátora **${adminName}**.`,
                 color: embedColor,
                 fields: [
-                  { name: '👤 Užívateľ', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámy', inline: true },
+                  { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
                   { name: '🛡️ Admin', value: adminName, inline: true },
                   { name: '\u200B', value: '\u200B', inline: true },
-                  { name: '📋 Dôvod', value: formData.reason || 'Nezadaný', inline: false },
-                  { name: '📝 Detaily', value: formData.details || '*Žiadne dodatočné detaily*', inline: false },
-                  { name: '🔗 Dôkaz', value: formData.evidence_url ? `[Klikni sem pre dôkaz](${formData.evidence_url})` : '*Bez dôkazu*', inline: true },
-                  { name: '⏳ Expirácia', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentný', inline: true }
+                  { name: '📋 Důvod', value: formData.reason || 'Nezadaný', inline: false },
+                  { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
+                  { name: '🔗 Důkaz', value: formData.evidence_url ? `[Klikni sem pro důkaz](${formData.evidence_url})` : '*Bez důkazu*', inline: true },
+                  { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
                 ],
                 footer: {
-                  text: 'Systém trestov | GenK'
+                  text: 'Systém trestů | GenK'
                 },
                 timestamp: new Date().toISOString()
               }]
@@ -586,7 +586,7 @@ export default function App() {
         }
       }
 
-      alert('Záznam bol úspešne uložený!');
+      alert('Záznam byl úspěšně uložen!');
       setIsModalOpen(false);
       setEditingItem(null);
       resetForm();
@@ -615,7 +615,7 @@ export default function App() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!isAdmin || !confirm('Naozaj chcete vymazať tento záznam?')) return;
+    if (!isAdmin || !confirm('Opravdu chcete smazat tento záznam?')) return;
     
     let table = '';
     let name = '';
@@ -630,7 +630,7 @@ export default function App() {
           name = admins.find(a => a.id === id)?.username || 'Admin';
         } else if (settingsTab === 'REASONS') {
           table = 'punishment_reasons';
-          name = punishmentReasons.find(r => r.id === id)?.label || 'Dôvod';
+          name = punishmentReasons.find(r => r.id === id)?.label || 'Důvod';
         }
         break;
     }
@@ -638,7 +638,7 @@ export default function App() {
     const { error } = await supabase.from(table).delete().eq('id', id);
     if (error) alert('Chyba: ' + error.message);
     else {
-      logAction(`Vymazaný ${activeSection}`, name, `ID: ${id}`);
+      logAction(`Smazán ${activeSection}`, name, `ID: ${id}`);
       fetchData();
     }
   };
@@ -762,7 +762,7 @@ export default function App() {
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-zinc-500 font-medium animate-pulse">Overujem prístup...</p>
+          <p className="text-zinc-500 font-medium animate-pulse">Ověřuji přístup...</p>
         </div>
       </div>
     );
@@ -790,9 +790,9 @@ export default function App() {
             
             {user && !isAdmin ? (
               <>
-                <p className="text-red-500 font-bold mb-2">Prístup Zamietnutý</p>
+                <p className="text-red-500 font-bold mb-2">Přístup Zamítnut</p>
                 <p className="text-zinc-500 text-sm mb-6">
-                  Váš účet ({user.user_metadata?.full_name || user.user_metadata?.name || user.email}) nemá oprávnenie na prístup.
+                  Váš účet ({user.user_metadata?.full_name || user.user_metadata?.name || user.email}) nemá oprávnění k přístupu.
                   <br/>
                   <span className="text-[10px] opacity-50">ID: {user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id}</span>
                 </p>
@@ -801,19 +801,19 @@ export default function App() {
                     onClick={handleLogout}
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3"
                   >
-                    <LogOut className="w-5 h-5" /> Odhlásiť sa a skúsiť iný účet
+                    <LogOut className="w-5 h-5" /> Odhlásit se a zkusit jiný účet
                   </button>
                   <button 
                     onClick={() => window.location.reload()}
                     className="w-full bg-transparent hover:bg-zinc-800 text-zinc-500 font-medium py-3 rounded-2xl transition-all text-sm"
                   >
-                    Skúsiť znova
+                    Zkusit znovu
                   </button>
                 </div>
               </>
             ) : (
               <>
-                <p className="text-zinc-500 text-sm mb-8">Prihláste sa pomocou vášho Discord účtu pre prístup k internému systému.</p>
+                <p className="text-zinc-500 text-sm mb-8">Přihlaste se pomocí vašeho Discord účtu pro přístup k internímu systému.</p>
                 <button 
                   onClick={handleLogin}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-900/20 group"
@@ -821,7 +821,7 @@ export default function App() {
                   <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                     <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.419-2.157 2.419z"/>
                   </svg>
-                  Prihlásiť cez Discord
+                  Přihlásit přes Discord
                 </button>
               </>
             )}
@@ -844,12 +844,12 @@ export default function App() {
                 }}
                 className="w-full mt-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white font-medium py-3 rounded-2xl border border-zinc-700 border-dashed transition-all flex items-center justify-center gap-2"
               >
-                <Shield className="w-4 h-4" /> Simulovať Admin Prístup (Test)
+                <Shield className="w-4 h-4" /> Simulovat Admin Přístup (Test)
               </button>
             )}
             
             <div className="mt-8 pt-8 border-t border-zinc-800">
-              <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený prístup</p>
+              <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený přístup</p>
             </div>
           </div>
         </div>
@@ -868,7 +868,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="font-bold text-lg tracking-tight">Genk Admin Panel</h1>
-              <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold">Interný Systém</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold">Interní Systém</p>
             </div>
           </div>
 
@@ -878,7 +878,7 @@ export default function App() {
                 onClick={() => setActiveSection('DASHBOARD')}
                 className="hidden md:flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors mr-4"
               >
-                <ChevronLeft className="w-4 h-4" /> Späť na výber
+                <ChevronLeft className="w-4 h-4" /> Zpět na výběr
               </button>
             )}
             {user ? (
@@ -886,7 +886,7 @@ export default function App() {
                 <div className="hidden md:block text-right">
                   <p className="text-sm font-medium">{user.user_metadata?.full_name || user.email}</p>
                   <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
-                    {isAdmin ? 'Administrátor' : 'Používateľ'}
+                    {isAdmin ? 'Administrátor' : 'Uživatel'}
                   </p>
                 </div>
                 {isAdmin && (
@@ -904,7 +904,7 @@ export default function App() {
                 <button 
                   onClick={handleLogout}
                   className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
-                  title="Odhlásiť sa"
+                  title="Odhlásit se"
                 >
                   <LogOut className="w-5 h-5" />
                 </button>
@@ -914,7 +914,7 @@ export default function App() {
                 onClick={handleLogin}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2"
               >
-                Prihlásiť cez Discord
+                Přihlásit přes Discord
               </button>
             )}
           </div>
@@ -925,8 +925,8 @@ export default function App() {
         {activeSection === 'DASHBOARD' ? (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-12">
-              <h2 className="text-4xl font-black tracking-tight">Vitajte, {user.user_metadata?.full_name?.split(' ')[0] || 'Admin'}</h2>
-              <p className="text-zinc-500">Vyberte sekciu, ktorú chcete spravovať.</p>
+              <h2 className="text-4xl font-black tracking-tight">Vítejte, {user.user_metadata?.full_name?.split(' ')[0] || 'Admin'}</h2>
+              <p className="text-zinc-500">Vyberte sekci, kterou chcete spravovat.</p>
               
               {isAdmin && (
                 <div className="flex items-center justify-center gap-3 mt-8">
@@ -934,13 +934,13 @@ export default function App() {
                     onClick={() => { setActiveSection('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                     className="flex items-center gap-2 px-4 py-1.5 bg-red-600/10 border border-red-600/20 rounded-full text-red-500 text-[10px] font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white transition-all"
                   >
-                    <Plus className="w-3 h-3" /> Rýchly Ban
+                    <Plus className="w-3 h-3" /> Rychlý Ban
                   </button>
                   <button 
                     onClick={() => { setActiveSection('WANTED'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                     className="flex items-center gap-2 px-4 py-1.5 bg-orange-600/10 border border-orange-600/20 rounded-full text-orange-500 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-600 hover:text-white transition-all"
                   >
-                    <Plus className="w-3 h-3" /> Rýchly Wanted
+                    <Plus className="w-3 h-3" /> Rychlý Wanted
                   </button>
                 </div>
               )}
@@ -959,7 +959,7 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
                 <h3 className="text-base font-bold">Banlist</h3>
-                <p className="text-zinc-500 text-xs mt-1">Správa trestov, banov a varovaní pre hráčov.</p>
+                <p className="text-zinc-500 text-xs mt-1">Správa trestů, banů a varování pro hráče.</p>
               </button>
 
               {/* Wanted Card */}
@@ -974,7 +974,7 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
                 <h3 className="text-base font-bold">Wanted</h3>
-                <p className="text-zinc-500 text-xs mt-1">Zoznam hľadaných osôb a nebezpečných subjektov.</p>
+                <p className="text-zinc-500 text-xs mt-1">Seznam hledaných osob a nebezpečných subjektů.</p>
               </button>
 
               {/* Bugs Card */}
@@ -989,7 +989,7 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
                 <h3 className="text-base font-bold">Bugs</h3>
-                <p className="text-zinc-500 text-xs mt-1">Hlásenia chýb a technických problémov servera.</p>
+                <p className="text-zinc-500 text-xs mt-1">Hlášení chyb a technických problémů serveru.</p>
               </button>
 
               {/* Meetings Card */}
@@ -1004,7 +1004,7 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
                 <h3 className="text-base font-bold">Meetings</h3>
-                <p className="text-zinc-500 text-xs mt-1">Plánované porady a dôležité stretnutia tímu.</p>
+                <p className="text-zinc-500 text-xs mt-1">Plánované porady a důležitá setkání týmu.</p>
               </button>
             </div>
           </div>
@@ -1012,13 +1012,13 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                <Settings className="w-5 h-5 text-indigo-500" /> Nastavenia Systému
+                <Settings className="w-5 h-5 text-indigo-500" /> Nastavení Systému
               </h2>
               <button 
                 onClick={() => setActiveSection('DASHBOARD')}
                 className="text-xs text-zinc-500 hover:text-white flex items-center gap-1 transition-colors"
               >
-                <ChevronLeft className="w-3 h-3" /> Späť na Dashboard
+                <ChevronLeft className="w-3 h-3" /> Zpět na Dashboard
               </button>
             </div>
 
@@ -1039,7 +1039,7 @@ export default function App() {
                   settingsTab === 'ADMINS' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
                 )}
               >
-                Správa Adminov
+                Správa Adminů
               </button>
               <button 
                 onClick={() => setSettingsTab('REASONS')}
@@ -1048,7 +1048,7 @@ export default function App() {
                   settingsTab === 'REASONS' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
                 )}
               >
-                Dôvody Trestov
+                Důvody Trestů
               </button>
             </div>
 
@@ -1058,7 +1058,7 @@ export default function App() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                   <input 
                     type="text"
-                    placeholder="Hľadať v logoch..."
+                    placeholder="Hledat v lozích..."
                     value={logsSearchTerm}
                     onChange={(e) => setLogsSearchTerm(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-zinc-600 transition-all"
@@ -1070,9 +1070,9 @@ export default function App() {
                       <thead>
                         <tr className="bg-zinc-800/50 border-b border-zinc-800">
                           <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akcia</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cieľ</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akce</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cíl</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Datum</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
@@ -1095,7 +1095,7 @@ export default function App() {
                               <span className="text-xs text-zinc-400">{log.target_name}</span>
                             </td>
                             <td className="px-4 py-3">
-                              <span className="text-[10px] text-zinc-500">{format(parseISO(log.created_at), 'd. MMM HH:mm', { locale: sk })}</span>
+                              <span className="text-[10px] text-zinc-500">{format(parseISO(log.created_at), 'd. MMM HH:mm', { locale: cs })}</span>
                             </td>
                           </tr>
                         ))}
@@ -1107,12 +1107,12 @@ export default function App() {
             ) : settingsTab === 'ADMINS' ? (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs text-zinc-500">Zoznam používateľov s prístupom do admin panelu.</p>
+                  <p className="text-xs text-zinc-500">Seznam uživatelů s přístupem do admin panelu.</p>
                   <button 
                     onClick={() => { setEditingItem(null); setFormData({ ...formData, discord_id: '', discord_username: '' }); setIsModalOpen(true); }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2"
                   >
-                    <UserPlus className="w-3 h-3" /> Pridať Admina
+                    <UserPlus className="w-3 h-3" /> Přidat Admina
                   </button>
                 </div>
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
@@ -1120,9 +1120,9 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Pridaný</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Přidán</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
@@ -1136,7 +1136,7 @@ export default function App() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex flex-col">
-                                <span className="text-[10px] text-zinc-400">{format(parseISO(admin.created_at), 'd. MMMM yyyy', { locale: sk })}</span>
+                                <span className="text-[10px] text-zinc-400">{format(parseISO(admin.created_at), 'd. MMMM yyyy', { locale: cs })}</span>
                                 <span className="text-[9px] text-zinc-600">od {admin.added_by}</span>
                               </div>
                             </td>
@@ -1166,12 +1166,12 @@ export default function App() {
             ) : (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs text-zinc-500">Zoznam preddefinovaných dôvodov pre tresty.</p>
+                  <p className="text-xs text-zinc-500">Seznam předdefinovaných důvodů pro tresty.</p>
                   <button 
                     onClick={() => { setEditingItem(null); setFormData({ ...formData, reason: '' }); setIsModalOpen(true); }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2"
                   >
-                    <Plus className="w-3 h-3" /> Pridať Dôvod
+                    <Plus className="w-3 h-3" /> Přidat Důvod
                   </button>
                 </div>
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
@@ -1179,9 +1179,9 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dôvod</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum Vytvorenia</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Důvod</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Datum Vytvoření</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
@@ -1191,7 +1191,7 @@ export default function App() {
                               <span className="text-xs font-bold">{reason.label}</span>
                             </td>
                             <td className="px-4 py-3">
-                              <span className="text-[10px] text-zinc-400">{format(parseISO(reason.created_at), 'd. MMMM yyyy', { locale: sk })}</span>
+                              <span className="text-[10px] text-zinc-400">{format(parseISO(reason.created_at), 'd. MMMM yyyy', { locale: cs })}</span>
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -1232,7 +1232,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="Hľadať užívateľa..." 
+                      placeholder="Hledat uživatele..." 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
@@ -1243,7 +1243,7 @@ export default function App() {
                     value={typeFilter}
                     onChange={(e) => setTypeFilter(e.target.value)}
                   >
-                    <option value="ALL">Všetky</option>
+                    <option value="ALL">Všechny</option>
                     <option value="WARN">Warn</option>
                     <option value="BAN">Ban</option>
                     <option value="WL-DOWN">WL-Down</option>
@@ -1257,7 +1257,7 @@ export default function App() {
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                   className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Pridať Trest
+                  <Plus className="w-3.5 h-3.5" /> Přidat Trest
                 </button>
               )}
             </div>
@@ -1267,22 +1267,22 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dôvod</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirácia</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Důvod</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirace</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
                     {loading ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 animate-pulse">Načítavam záznamy...</td>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 animate-pulse">Načítám záznamy...</td>
                       </tr>
                     ) : filteredPunishments.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
                       </tr>
                     ) : filteredPunishments.map((p) => {
                       const expired = isExpired(p.expires_at);
@@ -1298,8 +1298,8 @@ export default function App() {
                           )}
                         >
                           <td className="px-4 py-3">
-                            <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámy'}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznáme'}</div>
+                            <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámý'}</div>
+                            <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznámé'}</div>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1.5">
@@ -1318,7 +1318,7 @@ export default function App() {
                               {p.expires_at ? (
                                 <>
                                   <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
-                                    {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: sk })}
+                                    {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: cs })}
                                   </span>
                                   {expired ? (
                                     <span className="text-[9px] text-zinc-600 font-bold uppercase">EXP</span>
@@ -1342,7 +1342,7 @@ export default function App() {
                                   target="_blank" 
                                   rel="noreferrer"
                                   className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-blue-400 transition-colors"
-                                  title="Dôkaz"
+                                  title="Důkaz"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5" />
                                 </a>
@@ -1352,14 +1352,14 @@ export default function App() {
                                   <button 
                                     onClick={() => handleEdit(p)}
                                     className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
-                                    title="Upraviť"
+                                    title="Upravit"
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
                                   </button>
                                   <button 
                                     onClick={() => handleDelete(p.id)}
                                     className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
-                                    title="Vymazať"
+                                    title="Smazat"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1388,7 +1388,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="Hľadať..." 
+                      placeholder="Hledat..." 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all"
                       value={wantedSearchTerm}
                       onChange={(e) => setWantedSearchTerm(e.target.value)}
@@ -1399,9 +1399,9 @@ export default function App() {
                     value={wantedFilter}
                     onChange={(e) => setWantedFilter(e.target.value)}
                   >
-                    <option value="ALL">Všetky</option>
-                    <option value="ACTIVE">Aktívne</option>
-                    <option value="INACTIVE">Neaktívne</option>
+                    <option value="ALL">Všechny</option>
+                    <option value="ACTIVE">Aktivní</option>
+                    <option value="INACTIVE">Neaktivní</option>
                   </select>
                 </div>
               </div>
@@ -1410,7 +1410,7 @@ export default function App() {
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                   className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Pridať Wanted
+                  <Plus className="w-3.5 h-3.5" /> Přidat Wanted
                 </button>
               )}
             </div>
@@ -1419,24 +1419,24 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Užívateľ</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Úroveň</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Popis</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
                     {filteredWanted.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
                       </tr>
                     ) : filteredWanted.map((w) => (
                       <tr key={w.id} className="hover:bg-zinc-800/30 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
-                            <span className="font-bold text-sm">{w.discord_username || 'Neznámy'}</span>
-                            <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznáme ID'}</span>
+                            <span className="font-bold text-sm">{w.discord_username || 'Neznámý'}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznámé ID'}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -1502,7 +1502,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="Hľadať..." 
+                      placeholder="Hledat..." 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all"
                       value={bugsSearchTerm}
                       onChange={(e) => setBugsSearchTerm(e.target.value)}
@@ -1513,9 +1513,9 @@ export default function App() {
                     value={bugsFilter}
                     onChange={(e) => setBugsFilter(e.target.value)}
                   >
-                    <option value="ALL">Všetky</option>
-                    <option value="OPEN">Otvorené</option>
-                    <option value="IN_PROGRESS">V riešení</option>
+                    <option value="ALL">Všechny</option>
+                    <option value="OPEN">Otevřené</option>
+                    <option value="IN_PROGRESS">V řešení</option>
                     <option value="FIXED">Opravené</option>
                   </select>
                 </div>
@@ -1525,7 +1525,7 @@ export default function App() {
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                   className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Nahlásiť Bug
+                  <Plus className="w-3.5 h-3.5" /> Nahlásit Bug
                 </button>
               )}
             </div>
@@ -1535,16 +1535,16 @@ export default function App() {
                   <thead>
                     <tr className="bg-zinc-800/50 border-b border-zinc-800">
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Priorita</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Názov</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Název</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Reportér</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
                     {filteredBugs.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
                       </tr>
                     ) : filteredBugs.map((b) => (
                       <tr key={b.id} className="hover:bg-zinc-800/30 transition-colors group">
@@ -1602,7 +1602,7 @@ export default function App() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                   <input 
                     type="text" 
-                    placeholder="Hľadať meeting..." 
+                    placeholder="Hledat meeting..." 
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-purple-500 outline-none transition-all"
                     value={meetingsSearchTerm}
                     onChange={(e) => setMeetingsSearchTerm(e.target.value)}
@@ -1614,7 +1614,7 @@ export default function App() {
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                   className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Naplánovať Meeting
+                  <Plus className="w-3.5 h-3.5" /> Naplánovat Meeting
                 </button>
               )}
             </div>
@@ -1623,23 +1623,23 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Dátum</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Datum</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Názov</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Název</th>
                       <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Lokalita</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akcie</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
                     {filteredMeetings.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
                       </tr>
                     ) : filteredMeetings.map((m) => (
                       <tr key={m.id} className="hover:bg-zinc-800/30 transition-colors group">
                         <td className="px-4 py-3">
                           <div className="flex flex-col">
-                            <span className="text-xs font-bold text-purple-500 uppercase">{format(parseISO(m.scheduled_at), 'MMM', { locale: sk })}</span>
+                            <span className="text-xs font-bold text-purple-500 uppercase">{format(parseISO(m.scheduled_at), 'MMM', { locale: cs })}</span>
                             <span className="text-lg font-black leading-none">{format(parseISO(m.scheduled_at), 'dd')}</span>
                           </div>
                         </td>
@@ -1685,7 +1685,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="Hľadať v logoch..." 
+                      placeholder="Hledat v lozích..." 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
                       value={logsSearchTerm}
                       onChange={(e) => setLogsSearchTerm(e.target.value)}
@@ -1700,15 +1700,15 @@ export default function App() {
                       <tr className="bg-zinc-800/50 border-b border-zinc-800">
                         <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
                         <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akcia</th>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cieľ</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Akce</th>
+                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Cíl</th>
                         <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Detaily</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800">
                       {filteredLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašli sa žiadne záznamy.</td>
+                          <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
                         </tr>
                       ) : filteredLogs.map((log) => (
                         <tr key={log.id} className="hover:bg-zinc-800/30 transition-colors">
@@ -1721,8 +1721,8 @@ export default function App() {
                           <td className="px-4 py-3">
                             <span className={cn(
                               "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded",
-                              log.action.includes('Vymazaný') ? "bg-red-500/10 text-red-500" : 
-                              log.action.includes('Upravený') ? "bg-blue-500/10 text-blue-500" : 
+                              log.action.includes('Smazán') ? "bg-red-500/10 text-red-500" : 
+                              log.action.includes('Upraven') ? "bg-blue-500/10 text-blue-500" : 
                               "bg-green-500/10 text-green-500"
                             )}>
                               {log.action}
@@ -1742,13 +1742,13 @@ export default function App() {
               <div className="bg-zinc-900 p-6 rounded-full border border-zinc-800">
                 <XCircle className="w-12 h-12 text-red-500" />
               </div>
-              <h2 className="text-2xl font-bold">Prístup Odmietnutý</h2>
-              <p className="text-zinc-500 max-w-md">Túto sekciu môžu vidieť iba administrátori.</p>
+              <h2 className="text-2xl font-bold">Přístup Odepřen</h2>
+              <p className="text-zinc-500 max-w-md">Tuto sekci mohou vidět pouze administrátoři.</p>
               <button 
                 onClick={() => setActiveSection('DASHBOARD')}
                 className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-2 rounded-xl transition-all"
               >
-                Späť na Dashboard
+                Zpět na Dashboard
               </button>
             </div>
           )
@@ -1757,13 +1757,13 @@ export default function App() {
             <div className="bg-zinc-900 p-6 rounded-full border border-zinc-800">
               <AlertCircle className="w-12 h-12 text-zinc-700" />
             </div>
-            <h2 className="text-2xl font-bold">Sekcia vo vývoji</h2>
-            <p className="text-zinc-500 max-w-md">Sekcia {activeSection} je momentálne v príprave. Čoskoro tu pribudne plná funkcionalita.</p>
+            <h2 className="text-2xl font-bold">Sekce ve vývoji</h2>
+            <p className="text-zinc-500 max-w-md">Sekce {activeSection} je momentálně v přípravě. Brzy zde přibude plná funkcionalita.</p>
             <button 
               onClick={() => setActiveSection('DASHBOARD')}
               className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-2 rounded-xl transition-all"
             >
-              Späť na Dashboard
+              Zpět na Dashboard
             </button>
           </div>
         )}
@@ -1781,11 +1781,11 @@ export default function App() {
           >
             <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30">
               <h2 className="text-lg font-bold">
-                {editingItem ? 'Upraviť' : 'Pridať'} {
+                {editingItem ? 'Upravit' : 'Přidat'} {
                   activeSection === 'BANLIST' ? 'Trest' :
-                  activeSection === 'WANTED' ? 'Hľadaného' :
+                  activeSection === 'WANTED' ? 'Hledaného' :
                   activeSection === 'BUGS' ? 'Bug' : 
-                  activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Dôvod') : 'Meeting'
+                  activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Důvod') : 'Meeting'
                 }
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
@@ -1801,8 +1801,8 @@ export default function App() {
                     <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3 animate-in slide-in-from-top-2 duration-300">
                       <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-bold text-red-500 uppercase tracking-tight">Upozornenie: Maximálny počet warnov</p>
-                        <p className="text-xs text-red-400/80">Tento hráč má už {activeWarns} aktívne warny. Podľa pravidiel by mal byť 4. trest BAN, nie ďalší WARN.</p>
+                        <p className="text-sm font-bold text-red-500 uppercase tracking-tight">Upozornění: Maximální počet warnů</p>
+                        <p className="text-xs text-red-400/80">Tento hráč má již {activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN, ne další WARN.</p>
                       </div>
                     </div>
                   )}
@@ -1811,14 +1811,14 @@ export default function App() {
                   <div className="bg-zinc-950/50 border border-zinc-800/50 rounded-2xl p-5 space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                       <Users className="w-4 h-4 text-red-500" />
-                      <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Cieľ trestu</h3>
+                      <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Cíl trestu</h3>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="md:col-span-2">
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Vybrať z Discordu</label>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Vybrat z Discordu</label>
                         <DiscordUserSearch 
-                          placeholder="Hľadať hráča..."
+                          placeholder="Hledat hráče..."
                           value={formData.discord_username}
                           onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
                         />
@@ -1831,7 +1831,7 @@ export default function App() {
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
                           value={formData.discord_username}
                           onChange={e => setFormData({...formData, discord_username: e.target.value})}
-                          placeholder="napr. john_doe"
+                          placeholder="např. john_doe"
                         />
                       </div>
                       
@@ -1842,11 +1842,11 @@ export default function App() {
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono transition-all"
                           value={formData.discord_id}
                           onChange={e => setFormData({...formData, discord_id: e.target.value})}
-                          placeholder="napr. 1234567890"
+                          placeholder="např. 1234567890"
                         />
                       </div>
                     </div>
-                    <p className="text-[10px] text-zinc-600 italic ml-1">* Vyplňte aspoň jeden z údajov vyššie.</p>
+                    <p className="text-[10px] text-zinc-600 italic ml-1">* Vyplňte alespoň jeden z údajů výše.</p>
                   </div>
 
                   {/* Punishment Details */}
@@ -1878,7 +1878,7 @@ export default function App() {
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Dôvod (Pravidlo)</label>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Důvod (Pravidlo)</label>
                         <select 
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 appearance-none cursor-pointer"
                           value={formData.reason}
@@ -1893,7 +1893,7 @@ export default function App() {
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Dátum Expirácie / Trvanie</label>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Datum Expirace / Trvání</label>
                         <div className="space-y-3">
                           <input 
                             type="datetime-local" 
@@ -1935,12 +1935,12 @@ export default function App() {
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 h-24 resize-none transition-all"
                           value={formData.details}
                           onChange={e => setFormData({...formData, details: e.target.value})}
-                          placeholder="Popíšte situáciu a porušené pravidlá..."
+                          placeholder="Popište situaci a porušená pravidla..."
                         />
                       </div>
                       
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Link na dôkaz (Imgur/YouTube/Medal)</label>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Link na důkaz (Imgur/YouTube/Medal)</label>
                         <input 
                           type="url" 
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
@@ -1957,9 +1957,9 @@ export default function App() {
               {activeSection === 'WANTED' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať z Discordu</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat z Discordu</label>
                     <DiscordUserSearch 
-                      placeholder="Hľadať hľadaného..."
+                      placeholder="Hledat hledaného..."
                       value={formData.discord_username}
                       onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
                     />
@@ -1971,7 +1971,7 @@ export default function App() {
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                       value={formData.discord_username}
                       onChange={e => setFormData({...formData, discord_username: e.target.value})}
-                      placeholder="napr. john_doe"
+                      placeholder="např. john_doe"
                     />
                   </div>
                   <div>
@@ -1981,7 +1981,7 @@ export default function App() {
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                       value={formData.discord_id}
                       onChange={e => setFormData({...formData, discord_id: e.target.value})}
-                      placeholder="napr. 123456789012345678"
+                      placeholder="např. 123456789012345678"
                     />
                   </div>
                   <div>
@@ -1991,13 +1991,13 @@ export default function App() {
                       value={formData.whitelist_status}
                       onChange={e => setFormData({...formData, whitelist_status: e.target.value as any})}
                     >
-                      <option value="NONE">Žiadny</option>
+                      <option value="NONE">Žádný</option>
                       <option value="ALLOWED">Povolený</option>
-                      <option value="DENIED">Zamitnutý</option>
+                      <option value="DENIED">Zamítnutý</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Úroveň Nebezpečenstva</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Úroveň Nebezpečí</label>
                     <select 
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                       value={formData.danger_level}
@@ -2022,7 +2022,7 @@ export default function App() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Popis / Dôvod</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Popis / Důvod</label>
                     <textarea 
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50 h-24 resize-none"
                       value={formData.description}
@@ -2035,9 +2035,9 @@ export default function App() {
               {activeSection === 'SETTINGS' && settingsTab === 'ADMINS' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrať Admina z Discordu</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat Admina z Discordu</label>
                     <DiscordUserSearch 
-                      placeholder="Hľadať užívateľa..."
+                      placeholder="Hledat uživatele..."
                       value={formData.discord_username}
                       onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
                     />
@@ -2068,14 +2068,14 @@ export default function App() {
               {activeSection === 'SETTINGS' && settingsTab === 'REASONS' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Názov Dôvodu</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Název Důvodu</label>
                     <input 
                       required
                       type="text" 
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                       value={formData.reason}
                       onChange={e => setFormData({...formData, reason: e.target.value})}
-                      placeholder="napr. Combatlog"
+                      placeholder="např. Combatlog"
                     />
                   </div>
                 </div>
@@ -2084,7 +2084,7 @@ export default function App() {
               {activeSection === 'BUGS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Názov Chyby</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Název Chyby</label>
                     <input 
                       required
                       type="text" 
@@ -2133,7 +2133,7 @@ export default function App() {
               {activeSection === 'MEETINGS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Názov Meetingu</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Název Meetingu</label>
                     <input 
                       required
                       type="text" 
@@ -2143,7 +2143,7 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Dátum a Čas</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Datum a Čas</label>
                     <input 
                       required
                       type="datetime-local" 
@@ -2160,7 +2160,7 @@ export default function App() {
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                       value={formData.location}
                       onChange={e => setFormData({...formData, location: e.target.value})}
-                      placeholder="napr. Discord / In-game"
+                      placeholder="např. Discord / In-game"
                     />
                   </div>
                   <div className="md:col-span-2">
@@ -2181,7 +2181,7 @@ export default function App() {
                   onClick={() => setIsModalOpen(false)}
                   className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all"
                 >
-                  Zrušiť
+                  Zrušit
                 </button>
                 <button 
                   type="submit"
@@ -2194,7 +2194,7 @@ export default function App() {
                     "bg-purple-600 hover:bg-purple-700 shadow-purple-900/20"
                   )}
                 >
-                  {editingItem ? 'Uložiť Zmeny' : 'Uložiť Záznam'}
+                  {editingItem ? 'Uložit Změny' : 'Uložit Záznam'}
                 </button>
               </div>
             </form>
@@ -2207,7 +2207,7 @@ export default function App() {
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-zinc-600 text-xs font-medium uppercase tracking-widest">
           <p>© 2026 Genk RP Admin System</p>
           <div className="flex gap-6">
-            <a href="https://genk.cz/pravidla/redm-pravidla/" target="_blank" rel="noreferrer" className="hover:text-zinc-400 transition-colors">Pravidlá</a>
+            <a href="https://genk.cz/pravidla/redm-pravidla/" target="_blank" rel="noreferrer" className="hover:text-zinc-400 transition-colors">Pravidla</a>
             <a href="https://discord.gg/GPSpeD6UzQ" target="_blank" rel="noreferrer" className="hover:text-zinc-400 transition-colors">Discord</a>
           </div>
         </div>
