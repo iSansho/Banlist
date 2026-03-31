@@ -106,32 +106,19 @@ export default function App() {
   });
 
   useEffect(() => {
-    let mounted = true;
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-      
-      const currentUser = session?.user ?? null;
-      
-      if (currentUser) {
-        setUser(currentUser);
-        // Spustíme overenie iba ak ešte nie sme overení alebo ak ide o nové prihlásenie
-        if (!isVerified || event === 'SIGNED_IN') {
-          await verifyAndFetchData(currentUser);
-        }
+      if (session?.user) {
+        setUser(session.user);
+        await verifyAndFetchData(session.user);
       } else {
+        // Ak nie je session, musíme vypnúť loading, aby sa zobrazila login obrazovka
+        setLoading(false);
         setUser(null);
         setIsAdmin(false);
-        setIsVerified(false);
-        setLoading(false);
       }
     });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, [isVerified]); // Pridajte isVerified do závislostí
+    return () => subscription.unsubscribe();
+  }, []); // Pridajte isVerified do závislostí
 
   const verifyAndFetchData = async (currentUser: any) => {
     if (isVerifyingRef.current) return;
@@ -141,21 +128,24 @@ export default function App() {
       const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
       
-      const { data: adminData } = await supabase
+      const { data: adminData, error } = await supabase
         .from('admins')
         .select('*')
         .eq('discord_id', providerId)
         .maybeSingle();
+
+      if (error) throw error; // Ak je chyba v DB, ideme do catch bloku
 
       const isUserAdmin = isSuperAdmin || !!adminData;
       setIsAdmin(isUserAdmin);
 
       if (isUserAdmin) {
         await fetchData();
-        setIsVerified(true); // OZNAČÍME AKO OVERENÉ
       }
     } catch (e) {
-      console.error(e);
+      console.error("Session error, logging out...", e);
+      // Ak nastane chyba (napr. starý token), odhlásime užívateľa, aby si premazal cache
+      handleLogout(); 
     } finally {
       setLoading(false);
       isVerifyingRef.current = false;
@@ -393,26 +383,18 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      // Nejdříve vymažeme lokální data
+      await supabase.auth.signOut();
+      // Manuálne premazanie všetkého, čo by mohlo držať starú session
       localStorage.clear();
       sessionStorage.clear();
       
-      // Pokusíme se o odhlášení ze Supabase, ale nečekáme na něj, pokud by mělo viset
-      supabase.auth.signOut().then(() => {
-        console.log("Supabase signed out");
-      }).catch(err => {
-        console.error("Supabase signout error:", err);
-      });
-
-      // Resetujeme stavy
       setUser(null);
       setIsAdmin(false);
+      setIsVerified(false);
       
-      // Přesměrujeme na hlavní stránku a vynutíme reload
-      window.location.href = window.location.origin + '/?logout=' + Date.now();
+      // Hard refresh stránky vymaže zvyšné cache v pamäti
+      window.location.href = '/'; 
     } catch (error) {
-      console.error("Logout error:", error);
-      // V případě totálního selhání aspoň reload
       window.location.reload();
     }
   };
