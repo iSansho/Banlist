@@ -91,7 +91,7 @@ export const PUNISHMENT_REASONS = [
   'Powergaming',
   'Metagaming',
   'FearRP',
-  'Iné (uvedené v detailoch)'
+  'Jiné (uvedeno v detailech)'
 ];
 
 export const PUNISHMENT_TYPES = [
