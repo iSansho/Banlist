@@ -244,9 +244,12 @@ export default function App() {
 
   const logAction = async (action: string, target: string, details: string) => {
     if (!user) return;
+    const adminDiscordId = String(user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id).trim();
+    const adminName = user.user_metadata?.full_name || user.user_metadata?.name || user.email;
+
     await supabase.from('logs').insert([{
-      admin_name: user.user_metadata?.full_name || user.email,
-      admin_discord_id: user.user_metadata?.provider_id || user.id,
+      admin_name: adminName,
+      admin_discord_id: adminDiscordId,
       action,
       target_name: target,
       details
@@ -402,12 +405,15 @@ export default function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin) return;
+    if (!isAdmin || !user) return;
 
     let table = '';
     let payload: any = {};
     let logMsg = '';
     let targetName = '';
+
+    const adminDiscordId = String(user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id).trim();
+    const adminName = user.user_metadata?.full_name || user.user_metadata?.name || user.email;
 
     switch (activeSection) {
       case 'BANLIST':
@@ -432,8 +438,8 @@ export default function App() {
           details: formData.details,
           evidence_url: formData.evidence_url,
           expires_at: formData.expires_at || null,
-          admin_discord_id: user.user_metadata?.provider_id || user.id,
-          admin_name: user.user_metadata?.full_name || user.email,
+          admin_discord_id: adminDiscordId,
+          admin_name: adminName,
         };
         logMsg = `${formData.type}: ${formData.reason}`;
         targetName = formData.discord_username || formData.discord_id;
@@ -451,7 +457,7 @@ export default function App() {
           danger_level: formData.danger_level,
           status: formData.status,
           whitelist_status: formData.whitelist_status,
-          admin_name: user.user_metadata?.full_name || user.email,
+          admin_name: adminName,
         };
         logMsg = `Level: ${formData.danger_level}, Status: ${formData.status}, WL: ${formData.whitelist_status}`;
         targetName = formData.discord_username || formData.discord_id;
@@ -466,7 +472,7 @@ export default function App() {
           payload = {
             discord_id: formData.discord_id,
             username: formData.discord_username,
-            added_by: user.user_metadata?.full_name || user.email,
+            added_by: adminName,
           };
           logMsg = `Pridaný nový admin: ${formData.discord_username}`;
           targetName = formData.discord_username;
@@ -490,7 +496,7 @@ export default function App() {
           description: formData.description,
           priority: formData.priority,
           status: formData.bug_status,
-          reporter_name: user.user_metadata?.full_name || user.email,
+          reporter_name: adminName,
         };
         logMsg = `Priority: ${formData.priority}, Status: ${formData.bug_status}`;
         targetName = formData.title;
@@ -502,7 +508,7 @@ export default function App() {
           description: formData.description,
           scheduled_at: formData.scheduled_at,
           location: formData.location,
-          organizer_name: user.user_metadata?.full_name || user.email,
+          organizer_name: adminName,
         };
         logMsg = `Kedy: ${formData.scheduled_at}, Kde: ${formData.location}`;
         targetName = formData.title;
@@ -510,24 +516,28 @@ export default function App() {
     }
 
     let error;
-    if (editingItem) {
-      const { error: updateError } = await supabase
-        .from(table)
-        .update(payload)
-        .eq('id', editingItem.id);
-      error = updateError;
-      if (!error) logAction(`Upravený ${activeSection}`, targetName, logMsg);
-    } else {
-      const { error: insertError } = await supabase
-        .from(table)
-        .insert([payload]);
-      error = insertError;
-      if (!error) logAction(`Nový ${activeSection}`, targetName, logMsg);
+    try {
+      if (editingItem) {
+        const { error: updateError } = await supabase
+          .from(table)
+          .update(payload)
+          .eq('id', editingItem.id);
+        error = updateError;
+        if (!error) logAction(`Upravený ${activeSection}`, targetName, logMsg);
+      } else {
+        const { error: insertError } = await supabase
+          .from(table)
+          .insert([payload]);
+        error = insertError;
+        if (!error) logAction(`Nový ${activeSection}`, targetName, logMsg);
+      }
+    } catch (e: any) {
+      error = e;
     }
 
     if (error) {
       console.error('Supabase error:', error);
-      alert('Chyba pri ukladaní: ' + error.message);
+      alert('Chyba pri ukladaní: ' + (error.message || 'Neznáma chyba'));
       return;
     }
 
@@ -553,11 +563,11 @@ export default function App() {
             body: JSON.stringify({
               embeds: [{
                 title: `${emoji} ${actionText} Trest | ${formData.type}`,
-                description: `Hráč **${formData.discord_username || 'Neznámy'}** dostal trest od administrátora **${payload.admin_name}**.`,
+                description: `Hráč **${formData.discord_username || 'Neznámy'}** dostal trest od administrátora **${adminName}**.`,
                 color: embedColor,
                 fields: [
                   { name: '👤 Užívateľ', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámy', inline: true },
-                  { name: '🛡️ Admin', value: payload.admin_name, inline: true },
+                  { name: '🛡️ Admin', value: adminName, inline: true },
                   { name: '\u200B', value: '\u200B', inline: true },
                   { name: '📋 Dôvod', value: formData.reason || 'Nezadaný', inline: false },
                   { name: '📝 Detaily', value: formData.details || '*Žiadne dodatočné detaily*', inline: false },
