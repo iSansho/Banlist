@@ -153,56 +153,32 @@ export default function App() {
     isVerifyingRef.current = true;
     
     try {
-      const rawProviderId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
-      const providerId = String(rawProviderId).trim();
+      // Získame ID (pre Discord je to provider_id, pre email je to id používateľa)
+      const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
       
-      console.log("Verifying admin status for provider ID:", providerId);
+      // 1. Superadmin check (tvoj email)
+      const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
       
-      // 1. Nejdříve zkontrolujeme hardcoded whitelist a majitele (okamžitý výsledek)
-      const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-      const isHardcodedAdmin = whitelist.includes(providerId) || 
-                              currentUser.email === 'Floutic@gmail.com' || 
-                              currentUser.user_metadata?.email === 'Floutic@gmail.com' ||
-                              providerId === '325261048103829515' ||
-                              currentUser.id === '325261048103829515' ||
-                              currentUser.user_metadata?.full_name?.toLowerCase().includes('sansho') ||
-                              currentUser.user_metadata?.name?.toLowerCase().includes('sansho');
-      
-      let isUserAdmin = isHardcodedAdmin;
+      // 2. Check v databáze (pre zvyšok tímu)
+      const { data: adminData } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('discord_id', providerId)
+        .maybeSingle();
 
-      // 2. Pokud není v hardcoded seznamu, zkusíme databázi
-      if (!isUserAdmin) {
-        const { data, error } = await supabase.from('admins').select('*').eq('discord_id', providerId).maybeSingle();
-        if (error) {
-          console.error("Error checking admin status:", error);
-        }
-        if (data) {
-          isUserAdmin = true;
-        }
-      }
+      const isUserAdmin = isSuperAdmin || !!adminData;
       
-      console.log("Admin check result:", isUserAdmin, "for ID:", providerId);
       setIsAdmin(isUserAdmin);
 
       if (isUserAdmin) {
-        // Spustíme načítání dat, ale nečekáme na něj pro nastavení isAdmin
-        // Tím urychlíme zobrazení panelu
-        const loadData = async () => {
-          try {
-            await Promise.all([
-              fetchData(),
-              fetchDiscordMembers(),
-              fetchPunishmentReasons()
-            ]);
-          } catch (fetchError) {
-            console.error("Error fetching initial data:", fetchError);
-          }
-        };
-        loadData();
+        await fetchData();
+        await fetchDiscordMembers();
+        await fetchPunishmentReasons();
       }
     } catch (e) {
-      console.error("Exception in verifyAndFetchData:", e);
+      console.error("Chyba pri overovaní:", e);
     } finally {
+      // KĽÚČOVÁ ZMENA: setLoading(false) musí byť tu, aby loading zmizol vždy
       setLoading(false);
       isVerifyingRef.current = false;
     }
@@ -851,101 +827,42 @@ export default function App() {
     );
   }
 
-  if (!user || !isAdmin) {
+  if (!user) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        {/* Background Glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-red-600/10 blur-[120px] rounded-full"></div>
-        
-        <div className="relative z-10 w-full max-w-md">
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl text-center">
-            {user && !isAdmin ? (
-               <div className="inline-flex bg-red-600/20 p-4 rounded-2xl mb-6">
-                 <AlertCircle className="w-10 h-10 text-red-500" />
-               </div>
-            ) : (
-               <div className="inline-flex bg-red-600 p-4 rounded-2xl shadow-xl shadow-red-900/20 mb-6">
-                 <Shield className="w-10 h-10 text-white" />
-               </div>
-            )}
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
+        <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl w-full max-w-md text-center">
+          <div className="inline-flex bg-red-600 p-4 rounded-2xl mb-6">
+            <Shield className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-black mb-2">Genk Admin Panel</h1>
+          <p className="text-zinc-500 text-sm mb-8">Vyberte si spôsob prihlásenia</p>
+          
+          <div className="space-y-4">
+            <button 
+              onClick={handleLogin} // Pôvodná funkcia pre Discord
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all"
+            >
+              <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515... (pôvodná cesta)"/></svg>
+              Prihlásiť cez Discord
+            </button>
             
-            <h1 className="text-3xl font-black tracking-tight mb-2">Genk Admin Panel</h1>
-            
-            {user && !isAdmin ? (
-              <>
-                <p className="text-red-500 font-bold mb-2">Přístup Zamítnut</p>
-                <p className="text-zinc-500 text-sm mb-6">
-                  Váš účet ({user.user_metadata?.full_name || user.user_metadata?.name || user.email}) nemá oprávnění k přístupu.
-                  <br/>
-                  <span className="text-[10px] opacity-50">ID: {user.user_metadata?.provider_id || user.user_metadata?.sub || user.identities?.[0]?.id || user.id}</span>
-                </p>
-                <div className="space-y-3">
-                  <button 
-                    onClick={() => {
-                      if (user) verifyAndFetchData(user);
-                    }}
-                    className="w-full bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 border border-indigo-500/20"
-                  >
-                    <ShieldCheck className="w-5 h-5" /> Zkontrolovat oprávnění znovu
-                  </button>
-                  <button 
-                    onClick={handleLogout}
-                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3"
-                  >
-                    <LogOut className="w-5 h-5" /> Odhlásit se a zkusit jiný účet
-                  </button>
-                  <button 
-                    onClick={() => {
-                      // Clear potential stuck session
-                      localStorage.removeItem('supabase.auth.token');
-                      window.location.href = '/?retry=' + Date.now();
-                    }}
-                    className="w-full bg-transparent hover:bg-zinc-800 text-zinc-500 font-medium py-3 rounded-2xl transition-all text-sm"
-                  >
-                    Zkusit znovu
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-zinc-500 text-sm mb-8">Přihlaste se pomocí vašeho Discord účtu pro přístup k internímu systému.</p>
-                <button 
-                  onClick={handleLogin}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-900/20 group"
-                >
-                  <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
-                    <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.419-2.157 2.419z"/>
-                  </svg>
-                  Přihlásit přes Discord
-                </button>
-              </>
-            )}
-
-            {/* Test Mode Button - Only visible in development */}
-            {import.meta.env.DEV && (
-              <button 
-                onClick={() => {
-                  const mockUser = {
-                    id: 'test-admin-id',
-                    email: 'test@admin.local',
-                    user_metadata: {
-                      full_name: 'Test Admin',
-                      provider_id: import.meta.env.VITE_ADMIN_WHITELIST?.split(',')[0] || 'test-admin-id'
-                    }
-                  };
-                  setUser(mockUser);
-                  setIsAdmin(true);
-                  setLoading(false);
-                }}
-                className="w-full mt-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white font-medium py-3 rounded-2xl border border-zinc-700 border-dashed transition-all flex items-center justify-center gap-2"
-              >
-                <Shield className="w-4 h-4" /> Simulovat Admin Přístup (Test)
-              </button>
-            )}
-            
-            <div className="mt-8 pt-8 border-t border-zinc-800">
-              <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený přístup</p>
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-zinc-800"></span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-zinc-900 px-2 text-zinc-600">Alebo pre Superadmina</span></div>
             </div>
+
+            <button 
+              onClick={() => {
+                // Tu môžeš pridať login cez Supabase Auth UI alebo vlastný formulár
+                // Pre jednoduchosť zatiaľ vyvoláme Supabase Login
+                const email = prompt("Zadaj email:");
+                const password = prompt("Zadaj heslo:");
+                if(email && password) supabase.auth.signInWithPassword({ email, password });
+              }}
+              className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all border border-zinc-700"
+            >
+              <FileText className="w-5 h-5 text-zinc-400" /> Prihlásiť cez Email
+            </button>
           </div>
         </div>
       </div>
