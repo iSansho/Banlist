@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, isAfter, parseISO, addHours, addDays } from 'date-fns';
 import { sk, cs } from 'date-fns/locale';
 import axios from 'axios';
@@ -66,6 +66,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
+  const isVerifyingRef = useRef(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -116,8 +117,8 @@ export default function App() {
       }
       
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentUser) {
-        // Only set loading to true if we don't have a user yet or if we are not already an admin
-        if (!user || !isAdmin) {
+        // Only set loading to true if we don't have a user yet
+        if (!user) {
           setLoading(true);
         }
         setUser(currentUser);
@@ -137,6 +138,9 @@ export default function App() {
   }, []);
 
   const verifyAndFetchData = async (currentUser: any) => {
+    if (isVerifyingRef.current) return;
+    isVerifyingRef.current = true;
+    
     try {
       const rawProviderId = currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id;
       const providerId = String(rawProviderId).trim();
@@ -150,7 +154,12 @@ export default function App() {
       }
       
       const whitelist = import.meta.env.VITE_ADMIN_WHITELIST?.split(',') || [];
-      const isUserAdmin = !!data || whitelist.includes(providerId) || currentUser.email === 'Floutic@gmail.com';
+      const isUserAdmin = !!data || 
+                         whitelist.includes(providerId) || 
+                         currentUser.email === 'Floutic@gmail.com' || 
+                         currentUser.user_metadata?.email === 'Floutic@gmail.com' ||
+                         providerId === '325261048103829515' ||
+                         currentUser.id === '325261048103829515';
       
       setIsAdmin(isUserAdmin);
 
@@ -164,6 +173,7 @@ export default function App() {
       setIsAdmin(false);
     } finally {
       setLoading(false);
+      isVerifyingRef.current = false;
     }
   };
 
@@ -402,9 +412,20 @@ export default function App() {
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      // Force clear local storage just in case Supabase fails to clear it
+      // Force clear all storage to ensure clean state
       localStorage.clear();
-      window.location.reload();
+      sessionStorage.clear();
+      
+      // Clear cookies by setting expiry to past
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+      }
+      
+      window.location.href = window.location.origin;
     }
   };
 
