@@ -3,6 +3,7 @@ import { format, isAfter, parseISO, addHours, addDays } from 'date-fns';
 import { sk, cs } from 'date-fns/locale';
 import axios from 'axios';
 import { GoogleGenAI } from "@google/genai";
+import { Toaster, toast } from 'sonner';
 import { 
   Search, 
   Plus, 
@@ -31,7 +32,8 @@ import {
   ShieldCheck,
   UserPlus,
   FileText,
-  Gavel
+  Gavel,
+  Loader2
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason } from './lib/supabase';
@@ -66,6 +68,8 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const isVerifyingRef = useRef(false);
 
   // Form state
@@ -448,6 +452,34 @@ export default function App() {
     e.preventDefault();
     if (!isAdmin || !user) return;
 
+    // Validation
+    let isValid = true;
+    switch (activeSection) {
+      case 'BANLIST':
+        if (!formData.discord_id && !formData.discord_username) isValid = false;
+        break;
+      case 'WANTED':
+        if (!formData.discord_id && !formData.discord_username) isValid = false;
+        break;
+      case 'SETTINGS':
+        if (settingsTab === 'ADMINS' && !formData.discord_id && !formData.discord_username) isValid = false;
+        if (settingsTab === 'REASONS' && !formData.reason) isValid = false;
+        break;
+      case 'BUGS':
+        if (!formData.title || !formData.description) isValid = false;
+        break;
+      case 'MEETINGS':
+        if (!formData.title || !formData.scheduled_at || !formData.location) isValid = false;
+        break;
+    }
+
+    if (!isValid) {
+      setShowValidationErrors(true);
+      toast.error('Prosím vyplňte všechna povinná pole.');
+      return;
+    }
+
+    setIsSubmitting(true);
     let table = '';
     let payload: any = {};
     let logMsg = '';
@@ -458,14 +490,10 @@ export default function App() {
 
     switch (activeSection) {
       case 'BANLIST':
-        if (!formData.discord_id && !formData.discord_username) {
-          alert('Discord ID nebo Discord Username musí být vyplněno.');
-          return;
-        }
-
         // Warn Limit Check
         if (formData.type === 'WARN' && activeWarns >= 3) {
           if (!confirm(`Hráč má již ${activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN. Opravdu chcete pokračovat s WARNEM?`)) {
+            setIsSubmitting(false);
             return;
           }
         }
@@ -486,10 +514,6 @@ export default function App() {
         targetName = formData.discord_username || formData.discord_id;
         break;
       case 'WANTED':
-        if (!formData.discord_id && !formData.discord_username) {
-          alert('Discord ID nebo Discord Username musí být vyplněno.');
-          return;
-        }
         table = 'wanted';
         payload = {
           discord_id: formData.discord_id,
@@ -505,10 +529,6 @@ export default function App() {
         break;
       case 'SETTINGS':
         if (settingsTab === 'ADMINS') {
-          if (!formData.discord_id && !formData.discord_username) {
-            alert('Discord ID nebo Discord Username musí být vyplněno.');
-            return;
-          }
           table = 'admins';
           payload = {
             discord_id: formData.discord_id,
@@ -518,10 +538,6 @@ export default function App() {
           logMsg = `Přidán nový admin: ${formData.discord_username}`;
           targetName = formData.discord_username;
         } else if (settingsTab === 'REASONS') {
-          if (!formData.reason) {
-            alert('Název důvodu musí být vyplněn.');
-            return;
-          }
           table = 'punishment_reasons';
           payload = {
             label: formData.reason
@@ -578,7 +594,8 @@ export default function App() {
 
     if (error) {
       console.error('Supabase error:', error);
-      alert('Chyba při ukládání: ' + (error.message || 'Neznámá chyba'));
+      toast.error('Chyba při ukládání: ' + (error.message || 'Neznámá chyba'));
+      setIsSubmitting(false);
       return;
     }
 
@@ -627,10 +644,13 @@ export default function App() {
         }
       }
 
-      alert('Záznam byl úspěšně uložen!');
+      toast.success('Záznam byl úspěšně uložen!');
       setIsModalOpen(false);
       setEditingItem(null);
       resetForm();
+      setShowValidationErrors(false);
+      setIsSubmitting(false);
+      
       if (activeSection !== 'BANLIST' && table === 'punishments') {
         setActiveSection('BANLIST');
       }
@@ -1877,7 +1897,12 @@ export default function App() {
                         <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Username</label>
                         <input 
                           type="text" 
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                          className={cn(
+                            "w-full bg-zinc-900 border rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                            showValidationErrors && !formData.discord_id && !formData.discord_username
+                              ? "border-red-500 focus:ring-red-500/50"
+                              : "border-zinc-800 focus:ring-red-500/50"
+                          )}
                           value={formData.discord_username}
                           onChange={e => setFormData({...formData, discord_username: e.target.value})}
                           placeholder="např. john_doe"
@@ -1888,13 +1913,23 @@ export default function App() {
                         <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Discord ID</label>
                         <input 
                           type="text" 
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 font-mono transition-all"
+                          className={cn(
+                            "w-full bg-zinc-900 border rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 font-mono transition-all",
+                            showValidationErrors && !formData.discord_id && !formData.discord_username
+                              ? "border-red-500 focus:ring-red-500/50"
+                              : "border-zinc-800 focus:ring-red-500/50"
+                          )}
                           value={formData.discord_id}
                           onChange={e => setFormData({...formData, discord_id: e.target.value})}
                           placeholder="např. 1234567890"
                         />
                       </div>
                     </div>
+                    {showValidationErrors && !formData.discord_id && !formData.discord_username && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1 ml-1">
+                        <AlertCircle className="w-3 h-3" /> Vyplňte alespoň jeden z údajů (Username nebo ID)
+                      </p>
+                    )}
                     <p className="text-[10px] text-zinc-600 italic ml-1">* Vyplňte alespoň jeden z údajů výše.</p>
                   </div>
 
@@ -2017,7 +2052,12 @@ export default function App() {
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
                     <input 
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.discord_id && !formData.discord_username
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-orange-500/50"
+                      )}
                       value={formData.discord_username}
                       onChange={e => setFormData({...formData, discord_username: e.target.value})}
                       placeholder="např. john_doe"
@@ -2027,12 +2067,24 @@ export default function App() {
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
                     <input 
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.discord_id && !formData.discord_username
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-orange-500/50"
+                      )}
                       value={formData.discord_id}
                       onChange={e => setFormData({...formData, discord_id: e.target.value})}
                       placeholder="např. 123456789012345678"
                     />
                   </div>
+                  {showValidationErrors && !formData.discord_id && !formData.discord_username && (
+                    <div className="md:col-span-2">
+                      <p className="text-[10px] text-red-500 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Vyplňte alespoň jeden z údajů (Username nebo ID)
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Whitelist Status</label>
                     <select 
@@ -2121,11 +2173,21 @@ export default function App() {
                     <input 
                       required
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.reason 
+                          ? "border-red-500 focus:ring-red-500/50" 
+                          : "border-zinc-800 focus:ring-indigo-500/50"
+                      )}
                       value={formData.reason}
                       onChange={e => setFormData({...formData, reason: e.target.value})}
                       placeholder="např. Combatlog"
                     />
+                    {showValidationErrors && !formData.reason && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -2137,10 +2199,20 @@ export default function App() {
                     <input 
                       required
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.title
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-blue-500/50"
+                      )}
                       value={formData.title}
                       onChange={e => setFormData({...formData, title: e.target.value})}
                     />
+                    {showValidationErrors && !formData.title && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Priorita</label>
@@ -2171,10 +2243,20 @@ export default function App() {
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Popis Chyby</label>
                     <textarea 
                       required
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 h-24 resize-none"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 h-24 resize-none transition-all",
+                        showValidationErrors && !formData.description
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-blue-500/50"
+                      )}
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
                     />
+                    {showValidationErrors && !formData.description && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -2186,31 +2268,61 @@ export default function App() {
                     <input 
                       required
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.title
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-purple-500/50"
+                      )}
                       value={formData.title}
                       onChange={e => setFormData({...formData, title: e.target.value})}
                     />
+                    {showValidationErrors && !formData.title && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Datum a Čas</label>
                     <input 
                       required
                       type="datetime-local" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.scheduled_at
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-purple-500/50"
+                      )}
                       value={formData.scheduled_at}
                       onChange={e => setFormData({...formData, scheduled_at: e.target.value})}
                     />
+                    {showValidationErrors && !formData.scheduled_at && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Lokalita</label>
                     <input 
                       required
                       type="text" 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                        showValidationErrors && !formData.location
+                          ? "border-red-500 focus:ring-red-500/50"
+                          : "border-zinc-800 focus:ring-purple-500/50"
+                      )}
                       value={formData.location}
                       onChange={e => setFormData({...formData, location: e.target.value})}
                       placeholder="např. Discord / In-game"
                     />
+                    {showValidationErrors && !formData.location && (
+                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
+                      </p>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Agenda / Popis</label>
@@ -2234,8 +2346,9 @@ export default function App() {
                 </button>
                 <button 
                   type="submit"
+                  disabled={isSubmitting}
                   className={cn(
-                    "flex-[2] text-white font-bold py-3 rounded-xl transition-all shadow-lg",
+                    "flex-[2] text-white font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
                     activeSection === 'BANLIST' ? "bg-red-600 hover:bg-red-700 shadow-red-900/20" :
                     activeSection === 'WANTED' ? "bg-orange-600 hover:bg-orange-700 shadow-orange-900/20" :
                     activeSection === 'BUGS' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-900/20" :
@@ -2243,7 +2356,14 @@ export default function App() {
                     "bg-purple-600 hover:bg-purple-700 shadow-purple-900/20"
                   )}
                 >
-                  {editingItem ? 'Uložit Změny' : 'Uložit Záznam'}
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Ukládám...
+                    </>
+                  ) : (
+                    editingItem ? 'Uložit Změny' : 'Uložit Záznam'
+                  )}
                 </button>
               </div>
             </form>
