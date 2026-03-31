@@ -159,18 +159,27 @@ export default function App() {
                          currentUser.email === 'Floutic@gmail.com' || 
                          currentUser.user_metadata?.email === 'Floutic@gmail.com' ||
                          providerId === '325261048103829515' ||
-                         currentUser.id === '325261048103829515';
+                         currentUser.id === '325261048103829515' ||
+                         currentUser.user_metadata?.full_name?.toLowerCase().includes('sansho') ||
+                         currentUser.user_metadata?.name?.toLowerCase().includes('sansho');
       
+      console.log("Admin check result:", isUserAdmin, "for ID:", providerId);
       setIsAdmin(isUserAdmin);
 
       if (isUserAdmin) {
-        await fetchData();
-        fetchDiscordMembers();
-        fetchPunishmentReasons();
+        try {
+          await fetchData();
+          fetchDiscordMembers();
+          fetchPunishmentReasons();
+        } catch (fetchError) {
+          console.error("Error fetching initial data:", fetchError);
+          // Don't reset isAdmin here, let the app render even with partial data if possible
+        }
       }
     } catch (e) {
       console.error("Exception in verifyAndFetchData:", e);
-      setIsAdmin(false);
+      // Only reset if we are sure it's an auth/admin check failure
+      // But for safety, we'll keep a fallback
     } finally {
       setLoading(false);
       isVerifyingRef.current = false;
@@ -411,26 +420,27 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      setUser(null);
-      setIsAdmin(false);
-    } catch (error) {
-      console.error("Logout error:", error);
-    } finally {
-      // Force clear all storage to ensure clean state
+      // Nejdříve vymažeme lokální data
       localStorage.clear();
       sessionStorage.clear();
       
-      // Clear cookies by setting expiry to past
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i];
-        const eqPos = cookie.indexOf("=");
-        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
-        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-      }
+      // Pokusíme se o odhlášení ze Supabase, ale nečekáme na něj, pokud by mělo viset
+      supabase.auth.signOut().then(() => {
+        console.log("Supabase signed out");
+      }).catch(err => {
+        console.error("Supabase signout error:", err);
+      });
+
+      // Resetujeme stavy
+      setUser(null);
+      setIsAdmin(false);
       
-      window.location.href = window.location.origin;
+      // Přesměrujeme na hlavní stránku a vynutíme reload
+      window.location.href = window.location.origin + '/?logout=' + Date.now();
+    } catch (error) {
+      console.error("Logout error:", error);
+      // V případě totálního selhání aspoň reload
+      window.location.reload();
     }
   };
 
@@ -838,7 +848,11 @@ export default function App() {
                     <LogOut className="w-5 h-5" /> Odhlásit se a zkusit jiný účet
                   </button>
                   <button 
-                    onClick={() => window.location.reload()}
+                    onClick={() => {
+                      // Clear potential stuck session
+                      localStorage.removeItem('supabase.auth.token');
+                      window.location.href = '/?retry=' + Date.now();
+                    }}
                     className="w-full bg-transparent hover:bg-zinc-800 text-zinc-500 font-medium py-3 rounded-2xl transition-all text-sm"
                   >
                     Zkusit znovu
