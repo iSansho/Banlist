@@ -43,6 +43,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
   const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
   const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
   const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
@@ -107,59 +108,39 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    // Bezpečnostní timeout pro případ, že by se ověřování zaseklo
-    const timeoutId = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn("Auth initialization timed out, forcing load to finish");
-        setLoading(false);
-      }
-    }, 5000);
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       
       const currentUser = session?.user ?? null;
-      console.log(`Auth event: ${event}`, currentUser?.id);
       
-      // Pokud URL obsahuje hash (často po přesměrování z Discordu), vyčistíme ho
-      if (window.location.hash) {
-        // Odstraníme hash pro čistější URL, ale zachováme zbytek
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      }
-      
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && currentUser) {
-        // Pokud už uživatele máme a jen se aktualizoval, nemusíme nutně ukazovat loading
-        if (!user) {
-          setLoading(true);
-        }
+      if (currentUser) {
         setUser(currentUser);
-        await verifyAndFetchData(currentUser);
-      } else if (event === 'SIGNED_OUT' || !currentUser) {
+        // Spustíme overenie iba ak ešte nie sme overení alebo ak ide o nové prihlásenie
+        if (!isVerified || event === 'SIGNED_IN') {
+          await verifyAndFetchData(currentUser);
+        }
+      } else {
         setUser(null);
         setIsAdmin(false);
+        setIsVerified(false);
         setLoading(false);
       }
     });
 
     return () => {
       mounted = false;
-      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [isVerified]); // Pridajte isVerified do závislostí
 
   const verifyAndFetchData = async (currentUser: any) => {
     if (isVerifyingRef.current) return;
     isVerifyingRef.current = true;
     
     try {
-      // Získame ID (pre Discord je to provider_id, pre email je to id používateľa)
       const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
-      
-      // 1. Superadmin check (tvoj email)
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
       
-      // 2. Check v databáze (pre zvyšok tímu)
       const { data: adminData } = await supabase
         .from('admins')
         .select('*')
@@ -167,18 +148,15 @@ export default function App() {
         .maybeSingle();
 
       const isUserAdmin = isSuperAdmin || !!adminData;
-      
       setIsAdmin(isUserAdmin);
 
       if (isUserAdmin) {
         await fetchData();
-        await fetchDiscordMembers();
-        await fetchPunishmentReasons();
+        setIsVerified(true); // OZNAČÍME AKO OVERENÉ
       }
     } catch (e) {
-      console.error("Chyba pri overovaní:", e);
+      console.error(e);
     } finally {
-      // KĽÚČOVÁ ZMENA: setLoading(false) musí byť tu, aby loading zmizol vždy
       setLoading(false);
       isVerifyingRef.current = false;
     }
