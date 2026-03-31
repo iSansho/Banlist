@@ -33,7 +33,8 @@ import {
   UserPlus,
   FileText,
   Gavel,
-  Loader2
+  Loader2,
+  MessageSquare
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason } from './lib/supabase';
@@ -42,7 +43,9 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'BANLIST' | 'WANTED' | 'BUGS' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
+  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
+  const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
+  const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
   const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS'>('LOGS');
   
   // Data states
@@ -89,14 +92,16 @@ export default function App() {
     status: 'ACTIVE' as any,
     whitelist_status: 'NONE' as 'DENIED' | 'ALLOWED' | 'NONE',
 
-    // Bug
+    // Bug / Suggestion
     title: '',
     priority: 'LOW' as 'LOW' | 'MEDIUM' | 'HIGH',
     bug_status: 'OPEN' as any,
+    feedback_type: 'BUG' as 'BUG' | 'SUGGESTION',
 
     // Meeting
     scheduled_at: '',
-    location: ''
+    location: '',
+    summary: ''
   });
 
   useEffect(() => {
@@ -468,17 +473,14 @@ export default function App() {
     // Validation
     let isValid = true;
     switch (activeSection) {
-      case 'BANLIST':
-        if (!formData.discord_id && !formData.discord_username) isValid = false;
-        break;
-      case 'WANTED':
+      case 'PLAYERS':
         if (!formData.discord_id && !formData.discord_username) isValid = false;
         break;
       case 'SETTINGS':
         if (settingsTab === 'ADMINS' && !formData.discord_id && !formData.discord_username) isValid = false;
         if (settingsTab === 'REASONS' && !formData.reason) isValid = false;
         break;
-      case 'BUGS':
+      case 'FEEDBACK':
         if (!formData.title || !formData.description) isValid = false;
         break;
       case 'MEETINGS':
@@ -502,43 +504,44 @@ export default function App() {
     const adminName = user.user_metadata?.full_name || user.user_metadata?.name || user.email;
 
     switch (activeSection) {
-      case 'BANLIST':
-        // Warn Limit Check
-        if (formData.type === 'WARN' && activeWarns >= 3) {
-          if (!confirm(`Hráč má již ${activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN. Opravdu chcete pokračovat s WARNEM?`)) {
-            setIsSubmitting(false);
-            return;
+      case 'PLAYERS':
+        if (playersTab === 'BANLIST') {
+          // Warn Limit Check
+          if (formData.type === 'WARN' && activeWarns >= 3) {
+            if (!confirm(`Hráč má již ${activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN. Opravdu chcete pokračovat s WARNEM?`)) {
+              setIsSubmitting(false);
+              return;
+            }
           }
-        }
 
-        table = 'punishments';
-        payload = {
-          discord_id: formData.discord_id,
-          discord_username: formData.discord_username,
-          type: formData.type,
-          reason: formData.reason,
-          details: formData.details,
-          evidence_url: formData.evidence_url,
-          expires_at: formData.expires_at || null,
-          admin_discord_id: adminDiscordId,
-          admin_name: adminName,
-        };
-        logMsg = `${formData.type}: ${formData.reason}`;
-        targetName = formData.discord_username || formData.discord_id;
-        break;
-      case 'WANTED':
-        table = 'wanted';
-        payload = {
-          discord_id: formData.discord_id,
-          discord_username: formData.discord_username,
-          description: formData.description,
-          danger_level: formData.danger_level,
-          status: formData.status,
-          whitelist_status: formData.whitelist_status,
-          admin_name: adminName,
-        };
-        logMsg = `Level: ${formData.danger_level}, Status: ${formData.status}, WL: ${formData.whitelist_status}`;
-        targetName = formData.discord_username || formData.discord_id;
+          table = 'punishments';
+          payload = {
+            discord_id: formData.discord_id,
+            discord_username: formData.discord_username,
+            type: formData.type,
+            reason: formData.reason,
+            details: formData.details,
+            evidence_url: formData.evidence_url,
+            expires_at: formData.expires_at || null,
+            admin_discord_id: adminDiscordId,
+            admin_name: adminName,
+          };
+          logMsg = `${formData.type}: ${formData.reason}`;
+          targetName = formData.discord_username || formData.discord_id;
+        } else {
+          table = 'wanted';
+          payload = {
+            discord_id: formData.discord_id,
+            discord_username: formData.discord_username,
+            description: formData.description,
+            danger_level: formData.danger_level,
+            status: formData.status,
+            whitelist_status: formData.whitelist_status,
+            admin_name: adminName,
+          };
+          logMsg = `Level: ${formData.danger_level}, Status: ${formData.status}, WL: ${formData.whitelist_status}`;
+          targetName = formData.discord_username || formData.discord_id;
+        }
         break;
       case 'SETTINGS':
         if (settingsTab === 'ADMINS') {
@@ -559,7 +562,7 @@ export default function App() {
           targetName = formData.reason;
         }
         break;
-      case 'BUGS':
+      case 'FEEDBACK':
         table = 'bugs';
         payload = {
           title: formData.title,
@@ -567,8 +570,9 @@ export default function App() {
           priority: formData.priority,
           status: formData.bug_status,
           reporter_name: adminName,
+          type: feedbackTab === 'BUGS' ? 'BUG' : 'SUGGESTION'
         };
-        logMsg = `Priority: ${formData.priority}, Status: ${formData.bug_status}`;
+        logMsg = `Type: ${payload.type}, Priority: ${formData.priority}, Status: ${formData.bug_status}`;
         targetName = formData.title;
         break;
       case 'MEETINGS':
@@ -576,6 +580,7 @@ export default function App() {
         payload = {
           title: formData.title,
           description: formData.description,
+          summary: formData.summary,
           scheduled_at: formData.scheduled_at,
           location: formData.location,
           organizer_name: adminName,
@@ -593,13 +598,13 @@ export default function App() {
           .update(payload)
           .eq('id', editingItem.id);
         error = updateError;
-        if (!error) logAction(`Upraven ${activeSection}`, targetName, logMsg);
+        if (!error) logAction(`Upraven ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
       } else {
         const { error: insertError } = await supabase
           .from(table)
           .insert([payload]);
         error = insertError;
-        if (!error) logAction(`Nový ${activeSection}`, targetName, logMsg);
+        if (!error) logAction(`Nový ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
       }
     } catch (e: any) {
       error = e;
@@ -617,7 +622,7 @@ export default function App() {
     }
 
     // Send Webhook for Banlist only for now
-    if (activeSection === 'BANLIST') {
+    if (activeSection === 'PLAYERS' && playersTab === 'BANLIST') {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           
@@ -796,7 +801,8 @@ export default function App() {
                          (b.description?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false) ||
                          (b.reporter_name?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false);
     const matchesStatus = bugsFilter === 'ALL' || b.status === bugsFilter;
-    return matchesSearch && matchesStatus;
+    const matchesType = b.type === (feedbackTab === 'BUGS' ? 'BUG' : 'SUGGESTION');
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const filteredLogs = logs.filter(l => {
@@ -1020,55 +1026,40 @@ export default function App() {
               {isAdmin && (
                 <div className="flex items-center justify-center gap-3 mt-8">
                   <button 
-                    onClick={() => { setActiveSection('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                    onClick={() => { setActiveSection('PLAYERS'); setPlayersTab('BANLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                     className="flex items-center gap-2 px-4 py-1.5 bg-red-600/10 border border-red-600/20 rounded-full text-red-500 text-[10px] font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white transition-all"
                   >
                     <Plus className="w-3 h-3" /> Rychlý Ban
                   </button>
                   <button 
-                    onClick={() => { setActiveSection('WANTED'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                    onClick={() => { setActiveSection('PLAYERS'); setPlayersTab('WATCHLIST'); resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                     className="flex items-center gap-2 px-4 py-1.5 bg-orange-600/10 border border-orange-600/20 rounded-full text-orange-500 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-600 hover:text-white transition-all"
                   >
-                    <Plus className="w-3 h-3" /> Rychlý Wanted
+                    <Plus className="w-3 h-3" /> Přidat na Watchlist
                   </button>
                 </div>
               )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* Banlist Card */}
+              {/* Players Card */}
               <button 
-                onClick={() => setActiveSection('BANLIST')}
+                onClick={() => setActiveSection('PLAYERS')}
                 className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-red-600/50 transition-all text-left"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="bg-red-600/10 p-2 rounded-xl group-hover:bg-red-600 transition-all">
-                    <Ban className="w-5 h-5 text-red-500 group-hover:text-white" />
+                    <Users className="w-5 h-5 text-red-500 group-hover:text-white" />
                   </div>
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
-                <h3 className="text-base font-bold">Banlist</h3>
-                <p className="text-zinc-500 text-xs mt-1">Správa trestů, banů a varování pro hráče.</p>
+                <h3 className="text-base font-bold">Hráči</h3>
+                <p className="text-zinc-500 text-xs mt-1">Banlist a Watchlist pro sledování problémových hráčů.</p>
               </button>
 
-              {/* Wanted Card */}
+              {/* Feedback Card */}
               <button 
-                onClick={() => setActiveSection('WANTED')}
-                className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-orange-600/50 transition-all text-left"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="bg-orange-600/10 p-2 rounded-xl group-hover:bg-orange-600 transition-all">
-                    <Users className="w-5 h-5 text-orange-500 group-hover:text-white" />
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
-                </div>
-                <h3 className="text-base font-bold">Wanted</h3>
-                <p className="text-zinc-500 text-xs mt-1">Seznam hledaných osob a nebezpečných subjektů.</p>
-              </button>
-
-              {/* Bugs Card */}
-              <button 
-                onClick={() => setActiveSection('BUGS')}
+                onClick={() => setActiveSection('FEEDBACK')}
                 className="group bg-zinc-900 border border-zinc-800 p-5 rounded-2xl hover:border-blue-600/50 transition-all text-left"
               >
                 <div className="flex items-start justify-between mb-4">
@@ -1077,8 +1068,8 @@ export default function App() {
                   </div>
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
-                <h3 className="text-base font-bold">Bugs</h3>
-                <p className="text-zinc-500 text-xs mt-1">Hlášení chyb a technických problémů serveru.</p>
+                <h3 className="text-base font-bold">Zpětná vazba</h3>
+                <p className="text-zinc-500 text-xs mt-1">Hlášení chyb a návrhy na zlepšení serveru.</p>
               </button>
 
               {/* Meetings Card */}
@@ -1093,7 +1084,7 @@ export default function App() {
                   <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-white transition-all" />
                 </div>
                 <h3 className="text-base font-bold">Meetings</h3>
-                <p className="text-zinc-500 text-xs mt-1">Plánované porady a důležitá setkání týmu.</p>
+                <p className="text-zinc-500 text-xs mt-1">Plánované porady, zápisy a důležité výstupy.</p>
               </button>
             </div>
           </div>
@@ -1307,318 +1298,362 @@ export default function App() {
               </div>
             )}
           </div>
-        ) : activeSection === 'BANLIST' ? (
-          <>
-            {/* Banlist UI (Existing) */}
-            <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
-              <div className="flex items-center gap-4 w-full md:w-auto">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Ban className="w-5 h-5 text-red-500" /> Banlist
-                </h2>
-                <div className="h-4 w-px bg-zinc-800 hidden md:block" />
-                <div className="flex items-center gap-2 flex-1 md:flex-none">
-                  <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Hledat uživatele..." 
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <select 
-                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all cursor-pointer"
-                    value={typeFilter}
-                    onChange={(e) => setTypeFilter(e.target.value)}
-                  >
-                    <option value="ALL">Všechny</option>
-                    <option value="WARN">Warn</option>
-                    <option value="BAN">Ban</option>
-                    <option value="WL-DOWN">WL-Down</option>
-                    <option value="SUSPEND">Suspend</option>
-                  </select>
-                </div>
-              </div>
-
-              {isAdmin && (
-                <button 
-                  onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Přidat Trest
-                </button>
-              )}
-            </div>
-
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Důvod</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirace</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 animate-pulse">Načítám záznamy...</td>
-                      </tr>
-                    ) : filteredPunishments.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
-                      </tr>
-                    ) : filteredPunishments.map((p) => {
-                      const expired = isExpired(p.expires_at);
-                      const isBan = p.type === 'BAN';
-                      
-                      return (
-                        <tr 
-                          key={p.id} 
-                          onClick={() => setViewingPunishment(p)}
-                          className={cn(
-                            "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0 cursor-pointer",
-                            isBan && !expired && "border-l-2 border-l-red-600",
-                            expired && "opacity-50"
-                          )}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámý'}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznámé'}</div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5">
-                              <div className="scale-75 origin-left">{getTypeIcon(p.type)}</div>
-                              <span className="text-[11px] font-bold tracking-tight">{p.type}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="text-xs text-zinc-300 max-w-[200px] truncate" title={p.reason}>
-                              {p.reason}
-                            </div>
-                            {p.details && <div className="text-[9px] text-zinc-500 truncate max-w-[200px] italic">{p.details}</div>}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5 text-[11px]">
-                              {p.expires_at ? (
-                                <>
-                                  <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
-                                    {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: cs })}
-                                  </span>
-                                  {expired ? (
-                                    <span className="text-[9px] text-zinc-600 font-bold uppercase">EXP</span>
-                                  ) : (
-                                    <span className="text-[9px] text-green-500 font-bold uppercase">AKT</span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="text-red-500 font-black text-[10px] uppercase tracking-tighter">PERMA</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="text-[11px] text-zinc-400">{p.admin_name}</div>
-                          </td>
-                          <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {p.evidence_url && (
-                                <a 
-                                  href={p.evidence_url} 
-                                  target="_blank" 
-                                  rel="noreferrer"
-                                  className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-blue-400 transition-colors"
-                                  title="Důkaz"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </a>
-                              )}
-                              {isAdmin && (
-                                <>
-                                  <button 
-                                    onClick={() => handleEdit(p)}
-                                    className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
-                                    title="Upravit"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDelete(p.id)}
-                                    className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
-                                    title="Smazat"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        ) : activeSection === 'WANTED' ? (
+        ) : activeSection === 'PLAYERS' ? (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
               <div className="flex items-center gap-4 w-full md:w-auto">
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Users className="w-5 h-5 text-orange-500" /> Wanted
+                  <Users className="w-5 h-5 text-indigo-500" /> Správa Hráčů
                 </h2>
                 <div className="h-4 w-px bg-zinc-800 hidden md:block" />
-                <div className="flex items-center gap-2 flex-1 md:flex-none">
-                  <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Hledat..." 
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all"
-                      value={wantedSearchTerm}
-                      onChange={(e) => setWantedSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <select 
-                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all cursor-pointer"
-                    value={wantedFilter}
-                    onChange={(e) => setWantedFilter(e.target.value)}
+                <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+                  <button 
+                    onClick={() => setPlayersTab('BANLIST')}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                      playersTab === 'BANLIST' ? "bg-red-600 text-white shadow-lg shadow-red-900/20" : "text-zinc-500 hover:text-zinc-300"
+                    )}
                   >
-                    <option value="ALL">Všechny</option>
-                    <option value="ACTIVE">Aktivní</option>
-                    <option value="INACTIVE">Neaktivní</option>
-                  </select>
+                    Banlist
+                  </button>
+                  <button 
+                    onClick={() => setPlayersTab('WATCHLIST')}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                      playersTab === 'WATCHLIST' ? "bg-orange-600 text-white shadow-lg shadow-orange-900/20" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                  >
+                    Watchlist
+                  </button>
                 </div>
               </div>
+
               {isAdmin && (
                 <button 
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-orange-600 hover:bg-orange-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20"
+                  className={cn(
+                    "w-full md:w-auto text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg",
+                    playersTab === 'BANLIST' ? "bg-red-600 hover:bg-red-700 shadow-red-900/20" : "bg-orange-600 hover:bg-orange-700 shadow-orange-900/20"
+                  )}
                 >
-                  <Plus className="w-3.5 h-3.5" /> Přidat Wanted
+                  <Plus className="w-3.5 h-3.5" /> {playersTab === 'BANLIST' ? 'Přidat Trest' : 'Přidat na Watchlist'}
                 </button>
               )}
             </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Úroveň</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Popis</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800">
-                    {filteredWanted.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
-                      </tr>
-                    ) : filteredWanted.map((w) => (
-                      <tr key={w.id} className="hover:bg-zinc-800/30 transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-sm">{w.discord_username || 'Neznámý'}</span>
-                            <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznámé ID'}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={cn(
-                            "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                            w.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
-                            w.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
-                            w.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
-                          )}>
-                            {w.danger_level}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="text-xs text-zinc-400 line-clamp-1 max-w-xs">{w.description}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex gap-2">
-                            <span className={cn(
-                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                              w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
-                            )}>
-                              {w.status}
-                            </span>
-                            {w.whitelist_status !== 'NONE' && (
+
+            {playersTab === 'BANLIST' ? (
+              <>
+                <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
+                  <div className="flex items-center gap-2 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                      <input 
+                        type="text" 
+                        placeholder="Hledat uživatele..." 
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <select 
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-red-500 outline-none transition-all cursor-pointer"
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value)}
+                    >
+                      <option value="ALL">Všechny</option>
+                      <option value="WARN">Warn</option>
+                      <option value="BAN">Ban</option>
+                      <option value="WL-DOWN">WL-Down</option>
+                      <option value="SUSPEND">Suspend</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Důvod</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirace</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {loading ? (
+                          <tr>
+                            <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 animate-pulse">Načítám záznamy...</td>
+                          </tr>
+                        ) : filteredPunishments.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
+                          </tr>
+                        ) : filteredPunishments.map((p) => {
+                          const expired = isExpired(p.expires_at);
+                          const isBan = p.type === 'BAN';
+                          
+                          return (
+                            <tr 
+                              key={p.id} 
+                              onClick={() => setViewingPunishment(p)}
+                              className={cn(
+                                "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0 cursor-pointer",
+                                isBan && !expired && "border-l-2 border-l-red-600",
+                                expired && "opacity-50"
+                              )}
+                            >
+                              <td className="px-4 py-3">
+                                <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámý'}</div>
+                                <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznámé'}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="scale-75 origin-left">{getTypeIcon(p.type)}</div>
+                                  <span className="text-[11px] font-bold tracking-tight">{p.type}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="text-xs text-zinc-300 max-w-[200px] truncate" title={p.reason}>
+                                  {p.reason}
+                                </div>
+                                {p.details && <div className="text-[9px] text-zinc-500 truncate max-w-[200px] italic">{p.details}</div>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5 text-[11px]">
+                                  {p.expires_at ? (
+                                    <>
+                                      <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
+                                        {format(parseISO(p.expires_at), 'dd.MM.yy', { locale: cs })}
+                                      </span>
+                                      {expired ? (
+                                        <span className="text-[9px] text-zinc-600 font-bold uppercase">EXP</span>
+                                      ) : (
+                                        <span className="text-[9px] text-green-500 font-bold uppercase">AKT</span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-red-500 font-black text-[10px] uppercase tracking-tighter">PERMA</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="text-[11px] text-zinc-400">{p.admin_name}</div>
+                              </td>
+                              <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {p.evidence_url && (
+                                    <a 
+                                      href={p.evidence_url} 
+                                      target="_blank" 
+                                      rel="noreferrer"
+                                      className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-blue-400 transition-colors"
+                                      title="Důkaz"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                  )}
+                                  {isAdmin && (
+                                    <>
+                                      <button 
+                                        onClick={() => handleEdit(p)}
+                                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
+                                        title="Upravit"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDelete(p.id)}
+                                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
+                                        title="Smazat"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
+                  <div className="flex items-center gap-2 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                      <input 
+                        type="text" 
+                        placeholder="Hledat na watchlistu..." 
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all"
+                        value={wantedSearchTerm}
+                        onChange={(e) => setWantedSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <select 
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none transition-all cursor-pointer"
+                      value={wantedFilter}
+                      onChange={(e) => setWantedFilter(e.target.value)}
+                    >
+                      <option value="ALL">Všechny</option>
+                      <option value="ACTIVE">Aktivní</option>
+                      <option value="INACTIVE">Neaktivní</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Úroveň</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Popis</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {filteredWanted.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
+                          </tr>
+                        ) : filteredWanted.map((w) => (
+                          <tr key={w.id} className="hover:bg-zinc-800/30 transition-colors group">
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-sm">{w.discord_username || 'Neznámý'}</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznámé ID'}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
                               <span className={cn(
                                 "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                                w.whitelist_status === 'ALLOWED' ? "bg-blue-500/10 text-blue-500" : "bg-red-500/10 text-red-500"
+                                w.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
+                                w.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
+                                w.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
                               )}>
-                                WL: {w.whitelist_status === 'ALLOWED' ? 'OK' : 'KO'}
+                                {w.danger_level}
                               </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {isAdmin && (
-                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEdit(w)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => handleDelete(w.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-xs text-zinc-400 line-clamp-1 max-w-xs">{w.description}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex gap-2">
+                                <span className={cn(
+                                  "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                                  w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
+                                )}>
+                                  {w.status}
+                                </span>
+                                {w.whitelist_status !== 'NONE' && (
+                                  <span className={cn(
+                                    "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                                    w.whitelist_status === 'ALLOWED' ? "bg-blue-500/10 text-blue-500" : "bg-red-500/10 text-red-500"
+                                  )}>
+                                    WL: {w.whitelist_status === 'ALLOWED' ? 'OK' : 'KO'}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              {isAdmin && (
+                                <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => handleEdit(w)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => handleDelete(w.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        ) : activeSection === 'BUGS' ? (
+        ) : activeSection === 'FEEDBACK' ? (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
               <div className="flex items-center gap-4 w-full md:w-auto">
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                  <BugIcon className="w-5 h-5 text-blue-500" /> Bugs
+                  <MessageSquare className="w-5 h-5 text-blue-500" /> Feedback
                 </h2>
                 <div className="h-4 w-px bg-zinc-800 hidden md:block" />
-                <div className="flex items-center gap-2 flex-1 md:flex-none">
-                  <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-                    <input 
-                      type="text" 
-                      placeholder="Hledat..." 
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                      value={bugsSearchTerm}
-                      onChange={(e) => setBugsSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <select 
-                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
-                    value={bugsFilter}
-                    onChange={(e) => setBugsFilter(e.target.value)}
+                <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+                  <button 
+                    onClick={() => setFeedbackTab('BUGS')}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                      feedbackTab === 'BUGS' ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : "text-zinc-500 hover:text-zinc-300"
+                    )}
                   >
-                    <option value="ALL">Všechny</option>
-                    <option value="OPEN">Otevřené</option>
-                    <option value="IN_PROGRESS">V řešení</option>
-                    <option value="FIXED">Opravené</option>
-                  </select>
+                    Bugs
+                  </button>
+                  <button 
+                    onClick={() => setFeedbackTab('SUGGESTIONS')}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                      feedbackTab === 'SUGGESTIONS' ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                  >
+                    Návrhy
+                  </button>
                 </div>
               </div>
+
               {isAdmin && (
                 <button 
                   onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
+                  className={cn(
+                    "w-full md:w-auto text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg",
+                    feedbackTab === 'BUGS' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-900/20" : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20"
+                  )}
                 >
-                  <Plus className="w-3.5 h-3.5" /> Nahlásit Bug
+                  <Plus className="w-3.5 h-3.5" /> {feedbackTab === 'BUGS' ? 'Nahlásit Bug' : 'Přidat Návrh'}
                 </button>
               )}
             </div>
+
+            <div className="flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <div className="relative flex-1 md:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+                  <input 
+                    type="text" 
+                    placeholder="Hledat..." 
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                    value={bugsSearchTerm}
+                    onChange={(e) => setBugsSearchTerm(e.target.value)}
+                  />
+                </div>
+                <select 
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none transition-all cursor-pointer"
+                  value={bugsFilter}
+                  onChange={(e) => setBugsFilter(e.target.value)}
+                >
+                  <option value="ALL">Všechny</option>
+                  <option value="OPEN">Otevřené</option>
+                  <option value="IN_PROGRESS">V řešení</option>
+                  <option value="FIXED">Opravené</option>
+                </select>
+              </div>
+            </div>
+
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -1739,6 +1774,14 @@ export default function App() {
                         <td className="px-4 py-3">
                           <div className="text-sm font-bold text-zinc-100">{m.title}</div>
                           <p className="text-[10px] text-zinc-500 line-clamp-1">{m.description}</p>
+                          {m.summary && (
+                            <div className="mt-1 p-2 bg-zinc-800/50 rounded border border-zinc-700/50">
+                              <p className="text-[10px] text-zinc-400 italic line-clamp-2">
+                                <span className="font-bold text-purple-400 not-italic mr-1">Shrnutí:</span>
+                                {m.summary}
+                              </p>
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-xs text-zinc-400">
                           {m.location}
@@ -1872,9 +1915,8 @@ export default function App() {
             <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30">
               <h2 className="text-lg font-bold">
                 {editingItem ? 'Upravit' : 'Přidat'} {
-                  activeSection === 'BANLIST' ? 'Trest' :
-                  activeSection === 'WANTED' ? 'Hledaného' :
-                  activeSection === 'BUGS' ? 'Bug' : 
+                  activeSection === 'PLAYERS' ? (playersTab === 'BANLIST' ? 'Trest' : 'Hledaného') :
+                  activeSection === 'FEEDBACK' ? (feedbackTab === 'BUGS' ? 'Bug' : 'Návrh') : 
                   activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Důvod') : 'Meeting'
                 }
               </h2>
@@ -1884,7 +1926,7 @@ export default function App() {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6">
-              {activeSection === 'BANLIST' && (
+              {activeSection === 'PLAYERS' && playersTab === 'BANLIST' && (
                 <div className="space-y-6">
                   {/* Warn Limit Alert */}
                   {activeWarns >= 3 && formData.type === 'WARN' && (
@@ -2059,12 +2101,12 @@ export default function App() {
                 </div>
               )}
 
-              {activeSection === 'WANTED' && (
+              {activeSection === 'PLAYERS' && playersTab === 'WATCHLIST' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat z Discordu</label>
                     <DiscordUserSearch 
-                      placeholder="Hledat hledaného..."
+                      placeholder="Hledat na watchlistu..."
                       value={formData.discord_username}
                       onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
                     />
@@ -2213,10 +2255,12 @@ export default function App() {
                 </div>
               )}
 
-              {activeSection === 'BUGS' && (
+              {activeSection === 'FEEDBACK' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Název Chyby</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
+                      {feedbackTab === 'BUGS' ? 'Název Chyby' : 'Název Návrhu'}
+                    </label>
                     <input 
                       required
                       type="text" 
@@ -2224,10 +2268,11 @@ export default function App() {
                         "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
                         showValidationErrors && !formData.title
                           ? "border-red-500 focus:ring-red-500/50"
-                          : "border-zinc-800 focus:ring-blue-500/50"
+                          : feedbackTab === 'BUGS' ? "border-zinc-800 focus:ring-blue-500/50" : "border-zinc-800 focus:ring-emerald-500/50"
                       )}
                       value={formData.title}
                       onChange={e => setFormData({...formData, title: e.target.value})}
+                      placeholder={feedbackTab === 'BUGS' ? "např. Nefunguje otevírání dveří" : "např. Přidat nové vozidlo"}
                     />
                     {showValidationErrors && !formData.title && (
                       <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
@@ -2238,7 +2283,10 @@ export default function App() {
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Priorita</label>
                     <select 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2",
+                        feedbackTab === 'BUGS' ? "focus:ring-blue-500/50" : "focus:ring-emerald-500/50"
+                      )}
                       value={formData.priority}
                       onChange={e => setFormData({...formData, priority: e.target.value as any})}
                     >
@@ -2250,7 +2298,10 @@ export default function App() {
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Status</label>
                     <select 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      className={cn(
+                        "w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2",
+                        feedbackTab === 'BUGS' ? "focus:ring-blue-500/50" : "focus:ring-emerald-500/50"
+                      )}
                       value={formData.bug_status}
                       onChange={e => setFormData({...formData, bug_status: e.target.value as any})}
                     >
@@ -2261,17 +2312,20 @@ export default function App() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Popis Chyby</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
+                      {feedbackTab === 'BUGS' ? 'Popis Chyby' : 'Popis Návrhu'}
+                    </label>
                     <textarea 
                       required
                       className={cn(
                         "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 h-24 resize-none transition-all",
                         showValidationErrors && !formData.description
                           ? "border-red-500 focus:ring-red-500/50"
-                          : "border-zinc-800 focus:ring-blue-500/50"
+                          : feedbackTab === 'BUGS' ? "border-zinc-800 focus:ring-blue-500/50" : "border-zinc-800 focus:ring-emerald-500/50"
                       )}
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
+                      placeholder={feedbackTab === 'BUGS' ? "Podrobný popis chyby..." : "Podrobný popis vašeho návrhu..."}
                     />
                     {showValidationErrors && !formData.description && (
                       <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
@@ -2352,6 +2406,16 @@ export default function App() {
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 h-24 resize-none"
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
+                      placeholder="Co se bude probírat?"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Shrnutí Meetingu (Zápis)</label>
+                    <textarea 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 h-32 resize-none"
+                      value={formData.summary}
+                      onChange={e => setFormData({...formData, summary: e.target.value})}
+                      placeholder="Vycuc z meetingu, klíčové body, co se dohodlo..."
                     />
                   </div>
                 </div>
@@ -2370,9 +2434,8 @@ export default function App() {
                   disabled={isSubmitting}
                   className={cn(
                     "flex-[2] text-white font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
-                    activeSection === 'BANLIST' ? "bg-red-600 hover:bg-red-700 shadow-red-900/20" :
-                    activeSection === 'WANTED' ? "bg-orange-600 hover:bg-orange-700 shadow-orange-900/20" :
-                    activeSection === 'BUGS' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-900/20" :
+                    activeSection === 'PLAYERS' ? (playersTab === 'BANLIST' ? "bg-red-600 hover:bg-red-700 shadow-red-900/20" : "bg-orange-600 hover:bg-orange-700 shadow-orange-900/20") :
+                    activeSection === 'FEEDBACK' ? (feedbackTab === 'BUGS' ? "bg-blue-600 hover:bg-blue-700 shadow-blue-900/20" : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20") :
                     activeSection === 'SETTINGS' ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20" :
                     "bg-purple-600 hover:bg-purple-700 shadow-purple-900/20"
                   )}

@@ -45,6 +45,7 @@ export interface Bug {
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'OPEN' | 'IN_PROGRESS' | 'FIXED' | 'CLOSED';
   reporter_name: string;
+  type: 'BUG' | 'SUGGESTION';
 }
 
 export interface Meeting {
@@ -52,6 +53,7 @@ export interface Meeting {
   created_at: string;
   title: string;
   description: string;
+  summary?: string;
   scheduled_at: string;
   location: string;
   organizer_name: string;
