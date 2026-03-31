@@ -71,50 +71,32 @@ app.post("/api/webhook", requireAdmin, async (req, res) => {
 });
 
 // API for Discord Members
+// api/index.ts - časť pre členov
 app.get("/api/discord/members", requireAdmin, async (req, res) => {
   const botToken = process.env.DISCORD_BOT_TOKEN;
   const guildId = process.env.DISCORD_GUILD_ID;
 
   if (!botToken || !guildId) {
-    return res.status(500).json({ error: "Discord Bot Token or Guild ID not configured" });
+    return res.status(500).json({ error: "Chýba Bot Token alebo Guild ID v nastaveniach Vercelu." });
   }
 
   try {
-    let allMembers: any[] = [];
-    let lastId = "0";
-    let hasMore = true;
-    let iterations = 0;
+    // Načítame prvých 1000 členov (pre väčšinu serverov stačí)
+    const response = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+      headers: { Authorization: `Bot ${botToken}` }
+    });
 
-    while (hasMore && iterations < 5) {
-      const response = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000&after=${lastId}`, {
-        headers: { Authorization: `Bot ${botToken}` }
-      });
-
-      const members = response.data;
-      if (members.length === 0) {
-        hasMore = false;
-      } else {
-        allMembers = [...allMembers, ...members];
-        lastId = members[members.length - 1].user.id;
-        if (members.length < 1000) hasMore = false;
-      }
-      iterations++;
-    }
-
-    const mappedMembers = allMembers.map((m: any) => ({
+    const mappedMembers = response.data.map((m: any) => ({
       id: m.user.id,
       username: m.user.username,
-      global_name: m.user.global_name,
+      global_name: m.user.global_name || m.user.username,
       avatar: m.user.avatar
     }));
 
     res.json(mappedMembers);
   } catch (error: any) {
-    console.error("Discord API error:", error.response?.data || error.message);
-    res.status(500).json({ 
-      error: error.message,
-      discordResponse: error.response?.data 
-    });
+    console.error("Discord API Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Nepodarilo sa načítať členov z Discordu. Skontrolujte Bot Token a Intents." });
   }
 });
 
