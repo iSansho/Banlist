@@ -43,9 +43,27 @@ import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TY
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [userRank, setUserRank] = useState<number>(3);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    // Rýchla synchrónna kontrola existencie session v localStorage
+    const hasToken = Object.keys(localStorage).some(key => key.includes('-auth-token'));
+    const wasVerified = localStorage.getItem('is_verified') === 'true';
+    
+    // Ak bol overený a má token, loading je false (optimistický štart)
+    if (hasToken && wasVerified) return false;
+    
+    // Ak nemá token, loading je false (ukážeme login panel)
+    if (!hasToken) return false;
+    
+    // Inak čakáme na overenie
+    return true;
+  });
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
+  const [isVerified, setIsVerified] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    // Optimistické načítanie stavu overenia z localStorage pre okamžitý štart
+    return localStorage.getItem('is_verified') === 'true';
+  });
   const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
   const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
   const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
@@ -118,13 +136,15 @@ export default function App() {
     const APP_VERSION = '2.0'; 
     const savedVersion = localStorage.getItem('app_version');
 
-    if (savedVersion !== APP_VERSION) {
+    if (savedVersion && savedVersion !== APP_VERSION) {
       console.log(`[System] Nová verzia aplikácie (${APP_VERSION}). Čistím cache...`);
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem('app_version', APP_VERSION);
       window.location.reload();
       return;
+    } else if (!savedVersion) {
+      localStorage.setItem('app_version', APP_VERSION);
     }
 
     // --- AUTH INITIALIZATION & LISTENER ---
@@ -201,10 +221,11 @@ export default function App() {
       
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com' || currentUser.user_metadata?.email === 'Floutic@gmail.com'; 
       
+      // Skúsime nájsť admina podľa Discord ID alebo Emailu (uloženého v username)
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
         .select('*')
-        .eq('discord_id', providerId)
+        .or(`discord_id.eq.${providerId},username.eq.${currentUser.email}`)
         .maybeSingle();
 
       if (adminError) throw adminError;
@@ -218,21 +239,29 @@ export default function App() {
       if (isUserAdmin) {
         console.log("[Auth] Access granted.");
         setIsVerified(true);
+        localStorage.setItem('is_verified', 'true');
+        setLoading(false); // Okamžite skryjeme loading pre admina
+        
+        // Dáta sťahujeme na pozadí
         fetchData();
         fetchPunishmentReasons();
         fetchDiscordMembers(); 
       } else {
         console.log("[Auth] Access denied.");
-        toast.error(`Prístup zamietnutý. Vaše ID (${providerId}) nie je v zozname administrátorov.`);
+        setIsVerified(false);
+        localStorage.removeItem('is_verified');
+        setLoading(false); // Skryjeme loading aj pri zamietnutí
+        toast.error(`Prístup zamietnutý. Vaše ID/Email nie je v zozname administrátorov.`);
       }
     } catch (e: any) {
       console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
       setIsAdmin(false);
       setIsVerified(false);
-      toast.error("Chyba pri overovaní prístupu. Skúste sa prihlásiť znova.");
+      localStorage.removeItem('is_verified');
+      setLoading(false);
+      toast.error("Chyba pri overovaní prístupu.");
     } finally {
       clearTimeout(timeoutId);
-      setLoading(false);
       isVerifyingRef.current = false;
       console.log(`[Auth] Verification finished in ${Date.now() - startTime}ms`);
     }
