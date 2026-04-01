@@ -73,7 +73,8 @@ export interface Admin {
   id: string;
   created_at: string;
   discord_id: string;
-  username: string;
+  username: string; // This will be used for email if discord_id is missing
+  email?: string;
   added_by: string;
   rank: number;
 }

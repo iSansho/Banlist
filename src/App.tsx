@@ -35,7 +35,8 @@ import {
   FileText,
   Gavel,
   Loader2,
-  MessageSquare
+  MessageSquare,
+  Key
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason, SuggestionComment } from './lib/supabase';
@@ -67,7 +68,11 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
   const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
   const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
-  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS'>('LOGS');
+  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS' | 'ACCOUNT'>('LOGS');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [authMethod, setAuthMethod] = useState<'discord' | 'email'>('discord');
   
   // Data states
   const [punishments, setPunishments] = useState<Punishment[]>([]);
@@ -128,7 +133,9 @@ export default function App() {
     summary: '',
 
     // Admin
-    rank: 3
+    rank: 3,
+    email: '',
+    password: '',
   });
 
     useEffect(() => {
@@ -536,6 +543,7 @@ export default function App() {
   };
 
   const [showEmailForm, setShowEmailForm] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -569,14 +577,59 @@ export default function App() {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      toast.success('Prihlásenie úspešné');
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        toast.success('Registrace úspěšná. Nyní se můžete přihlásit.');
+        setIsSignUp(false);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        toast.success('Prihlásenie úspešné');
+      }
     } catch (error: any) {
-      toast.error('Chyba prihlásenia: ' + error.message);
+      toast.error('Chyba: ' + error.message);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword || !confirmPassword) {
+      toast.error('Prosím vyplňte obě pole pro heslo');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Hesla se neshodují');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error('Heslo musí mít alespoň 6 znaků');
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      toast.success('Heslo bylo úspěšně aktualizováno');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      console.error("[Auth] Password update error:", error);
+      toast.error('Chyba při aktualizaci hesla: ' + error.message);
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -686,14 +739,26 @@ export default function App() {
       case 'SETTINGS':
         if (settingsTab === 'ADMINS') {
           table = 'admins';
-          payload = {
-            discord_id: formData.discord_id,
-            username: formData.discord_username,
-            rank: formData.rank ?? 3,
-            added_by: adminName,
-          };
-          logMsg = `Admin: ${formData.discord_username} (Rank: ${formData.rank ?? 3})`;
-          targetName = formData.discord_username;
+          if (authMethod === 'discord') {
+            payload = {
+              discord_id: formData.discord_id,
+              username: formData.discord_username,
+              rank: formData.rank ?? 3,
+              added_by: adminName,
+            };
+            logMsg = `Admin: ${formData.discord_username} (Rank: ${formData.rank ?? 3})`;
+            targetName = formData.discord_username;
+          } else {
+            payload = {
+              discord_id: '',
+              username: formData.email,
+              email: formData.email,
+              rank: formData.rank ?? 3,
+              added_by: adminName,
+            };
+            logMsg = `Admin Email: ${formData.email} (Rank: ${formData.rank ?? 3})`;
+            targetName = formData.email;
+          }
         } else if (settingsTab === 'REASONS') {
           table = 'punishment_reasons';
           payload = {
@@ -1118,9 +1183,16 @@ export default function App() {
                       type="submit"
                       className="flex-[2] bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-all text-xs shadow-lg shadow-red-900/20"
                     >
-                      Prihlásiť sa
+                      {isSignUp ? 'Registrovať sa' : 'Prihlásiť sa'}
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSignUp(!isSignUp)}
+                    className="text-[10px] font-bold text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-colors mt-2"
+                  >
+                    {isSignUp ? 'Už máte účet? Prihláste sa' : 'Nemáte účet? Registrujte sa'}
+                  </button>
                 </form>
               )}
             </div>
@@ -1342,6 +1414,15 @@ export default function App() {
                 )}
               >
                 Důvody Trestů
+              </button>
+              <button 
+                onClick={() => setSettingsTab('ACCOUNT')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  settingsTab === 'ACCOUNT' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Můj Účet
               </button>
             </div>
 
@@ -2503,34 +2584,69 @@ export default function App() {
 
               {activeSection === 'SETTINGS' && settingsTab === 'ADMINS' && (
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat Admina z Discordu</label>
-                    <DiscordUserSearch 
-                      placeholder="Hledat uživatele..."
-                      value={formData.discord_username}
-                      onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
-                    />
+                  <div className="flex gap-2 p-1 bg-zinc-900 rounded-lg mb-4">
+                    <button 
+                      type="button"
+                      onClick={() => setAuthMethod('discord')}
+                      className={cn("flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all", 
+                        authMethod === 'discord' ? "bg-zinc-800 text-white" : "text-zinc-500")}
+                    >DISCORD</button>
+                    <button 
+                      type="button"
+                      onClick={() => setAuthMethod('email')}
+                      className={cn("flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all", 
+                        authMethod === 'email' ? "bg-zinc-800 text-white" : "text-zinc-500")}
+                    >EMAIL</button>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
-                      <input 
-                        type="text" 
-                        readOnly
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed"
-                        value={formData.discord_username}
-                      />
+
+                  {authMethod === 'discord' ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat Admina z Discordu</label>
+                        <DiscordUserSearch 
+                          placeholder="Hledat uživatele..."
+                          value={formData.discord_username}
+                          onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
+                          <input 
+                            type="text" 
+                            readOnly
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed"
+                            value={formData.discord_username}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
+                          <input 
+                            type="text" 
+                            readOnly
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed font-mono"
+                            value={formData.discord_id}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Email</label>
+                        <input 
+                          type="email" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                          value={formData.email}
+                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                          placeholder="admin@genk.rp"
+                        />
+                      </div>
+                      <p className="text-[10px] text-zinc-500 italic">
+                        * Admin se bude muset zaregistrovat s tímto emailem na přihlašovací stránce.
+                      </p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
-                      <input 
-                        type="text" 
-                        readOnly
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed font-mono"
-                        value={formData.discord_id}
-                      />
-                    </div>
-                  </div>
+                  )}
                   <div>
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Rank</label>
                     <select 
@@ -2542,6 +2658,74 @@ export default function App() {
                       <option value={2}>Vedení</option>
                       <option value={3}>Admin</option>
                     </select>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === 'SETTINGS' && settingsTab === 'ACCOUNT' && (
+                <div className="space-y-6">
+                  <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-red-500" />
+                      Změna hesla
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Nové heslo</label>
+                        <input 
+                          type="password" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="••••••••"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Potvrdit heslo</label>
+                        <input 
+                          type="password" 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                        />
+                      </div>
+                      <button 
+                        onClick={handleUpdatePassword}
+                        disabled={isUpdatingPassword}
+                        className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                      >
+                        {isUpdatingPassword ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <Key className="w-4 h-4" />
+                        )}
+                        Aktualizovat heslo
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-zinc-500" />
+                      Informace o účtu
+                    </h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between py-2 border-b border-zinc-800/50">
+                        <span className="text-zinc-500">Email:</span>
+                        <span className="text-white font-medium">{user?.email}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-zinc-800/50">
+                        <span className="text-zinc-500">ID:</span>
+                        <span className="text-zinc-400 font-mono text-xs">{user?.id}</span>
+                      </div>
+                      <div className="flex justify-between py-2">
+                        <span className="text-zinc-500">Rank:</span>
+                        <span className="text-red-500 font-bold">
+                          {userRank === 1 ? 'Majitel' : userRank === 2 ? 'Vedení' : 'Admin'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
