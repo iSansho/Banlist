@@ -33,7 +33,7 @@ const requireAdmin = async (req: any, res: any, next: any) => {
 
   // 1. Kontrola Superadmina podľa emailu
   if (userEmail === 'Floutic@gmail.com') {
-    req.user = user;
+    req.user = { ...user, rank: 1 };
     return next();
   }
 
@@ -45,7 +45,7 @@ const requireAdmin = async (req: any, res: any, next: any) => {
     .maybeSingle();
 
   if (adminData) {
-    req.user = user;
+    req.user = { ...user, rank: adminData.rank || 3 };
     return next();
   }
 
@@ -105,6 +105,50 @@ app.get("/api/discord/members", requireAdmin, async (req, res) => {
   } catch (error: any) {
     console.error("Discord API Error:", error.response?.data || error.message);
     res.status(500).json({ error: "Nepodarilo sa načítať členov z Discordu. Skontrolujte Bot Token a Intents." });
+  }
+});
+
+// API for Suggestions Import
+app.post("/api/suggestions/import", requireAdmin, async (req, res) => {
+  const { messages } = req.body;
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "Neplatné správy" });
+  }
+
+  try {
+    const firstMsg = messages[0];
+    const { data: suggestion, error: suggestionError } = await supabase
+      .from("bugs")
+      .insert([{
+        title: firstMsg.title || "Importovaný návrh",
+        description: firstMsg.content,
+        reporter_name: firstMsg.author_name,
+        type: "SUGGESTION",
+        status: "OPEN",
+        priority: "MEDIUM"
+      }])
+      .select()
+      .single();
+
+    if (suggestionError) throw suggestionError;
+
+    if (messages.length > 1) {
+      const comments = messages.slice(1).map(m => ({
+        suggestion_id: suggestion.id,
+        author_name: m.author_name,
+        content: m.content
+      }));
+
+      const { error: commentsError } = await supabase
+        .from("suggestion_comments")
+        .insert(comments);
+
+      if (commentsError) throw commentsError;
+    }
+
+    res.json({ success: true, id: suggestion.id });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

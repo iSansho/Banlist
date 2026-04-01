@@ -75,6 +75,16 @@ export interface Admin {
   discord_id: string;
   username: string;
   added_by: string;
+  rank: number;
+}
+
+export interface SuggestionComment {
+  id: string;
+  suggestion_id: string;
+  author_name: string;
+  content: string;
+  created_at: string;
+  is_valid: boolean;
 }
 
 export interface PunishmentReason {

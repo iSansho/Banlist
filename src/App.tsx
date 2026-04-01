@@ -38,10 +38,11 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason } from './lib/supabase';
+import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason, SuggestionComment } from './lib/supabase';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
+  const [userRank, setUserRank] = useState<number>(3);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
@@ -54,6 +55,8 @@ export default function App() {
   const [punishments, setPunishments] = useState<Punishment[]>([]);
   const [wantedList, setWantedList] = useState<Wanted[]>([]);
   const [bugs, setBugs] = useState<Bug[]>([]);
+  const [suggestionComments, setSuggestionComments] = useState<SuggestionComment[]>([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<Bug | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [admins, setAdmins] = useState<Admin[]>([]);
@@ -108,11 +111,13 @@ export default function App() {
 
     useEffect(() => {
     // --- VERSION SHIELD: Automatické čistenie cache pri zmene verzie ---
-    const APP_VERSION = '1.5'; 
+    const APP_VERSION = '1.6'; 
     const savedVersion = localStorage.getItem('app_version');
 
+    console.log(`[System] App Version: ${APP_VERSION}, Saved Version: ${savedVersion}`);
+
     if (savedVersion !== APP_VERSION) {
-      console.log("Nová verzia aplikácie. Čistím starú cache...");
+      console.log("[System] Nová verzia aplikácie. Čistím starú cache...");
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem('app_version', APP_VERSION);
@@ -122,16 +127,19 @@ export default function App() {
 
     // --- AUTH INITIALIZATION & LISTENER ---
     const initAuth = async () => {
+      console.log("[Auth] Initializing auth...");
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          console.log("[Auth] Session found for:", session.user.email);
           setUser(session.user);
           await verifyAndFetchData(session.user);
         } else {
+          console.log("[Auth] No session found.");
           setLoading(false);
         }
       } catch (error) {
-        console.error("Chyba pri inicializácii auth:", error);
+        console.error("[Auth] Chyba pri inicializácii auth:", error);
         setLoading(false);
       }
     };
@@ -139,7 +147,7 @@ export default function App() {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth event:", event);
+      console.log("[Auth] Event:", event);
       
       if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -159,45 +167,68 @@ export default function App() {
   }, []); // Prázdne pole - spustí sa len raz pri mountnutí
 
     const verifyAndFetchData = async (currentUser: any) => {
+    const startTime = Date.now();
+    console.log(`[Auth] Starting verification for ${currentUser.email} at ${startTime}`);
+
     // Bráni nekonečnému cyklu overovania
-    if (isVerifyingRef.current) return;
+    if (isVerifyingRef.current) {
+      console.log("[Auth] Verification already in progress, skipping duplicate call.");
+      return;
+    }
+    
+    if (isVerified && activeSection !== 'DASHBOARD') {
+      console.log("[Auth] Already verified, skipping...");
+      setLoading(false);
+      return;
+    }
+
     isVerifyingRef.current = true;
     
     try {
-      const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
+      const providerId = String(currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id).trim();
+      console.log(`[Auth] Provider ID: ${providerId}`);
+
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
       
+      console.log("[Auth] Checking admin table...");
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
-        .select('*')
+        .select('rank')
         .eq('discord_id', providerId)
         .maybeSingle();
 
-      if (adminError) throw adminError;
+      if (adminError) {
+        console.error("[Auth] Admin check error:", adminError);
+        throw adminError;
+      }
 
       const isUserAdmin = isSuperAdmin || !!adminData;
+      console.log(`[Auth] Admin Status: ${isUserAdmin}, Rank: ${adminData?.rank || (isSuperAdmin ? 1 : 'N/A')}`);
+      
       setIsAdmin(isUserAdmin);
+      
+      const rank = isSuperAdmin ? 1 : (adminData?.rank || 3);
+      setUserRank(rank);
 
       if (isUserAdmin) {
-        // Načítame kritické dáta pre zobrazenie
-        await Promise.all([
-          fetchData(),
-          fetchPunishmentReasons()
-        ]);
-        
-        // Discord členov načítame na pozadí, aby sme neblokovali UI
-        fetchDiscordMembers(); 
-        
+        console.log("[Auth] Access granted. Unblocking UI and fetching data...");
         setIsVerified(true);
+        setLoading(false); // OKAMŽITÉ ODBLOKOVANIE UI
+        
+        // Dáta načítame na pozadí, aby sme neblokovali užívateľa
+        fetchData();
+        fetchPunishmentReasons();
+        fetchDiscordMembers(); 
       } else {
-        // Ak užívateľ nie je admin, vypneme loading aby videl "Prístup zamietnutý"
+        console.log("[Auth] Access denied.");
         setLoading(false);
       }
     } catch (e) {
-      console.error("Kritická chyba pri overovaní prístupu:", e);
+      console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
       // V prípade chyby (napr. neplatná session) vynútime čisté odhlásenie
       handleLogout(); 
     } finally {
+      console.log(`[Auth] Verification process finished in ${Date.now() - startTime}ms`);
       setLoading(false);
       isVerifyingRef.current = false;
     }
@@ -214,6 +245,51 @@ export default function App() {
       return;
     }
     setPunishmentReasons(data || []);
+  };
+
+  const fetchSuggestionComments = async (suggestionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('suggestion_comments')
+        .select('*')
+        .eq('suggestion_id', suggestionId)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      setSuggestionComments(data || []);
+    } catch (error) {
+      console.error("Chyba pri načítaní komentárov:", error);
+    }
+  };
+
+  const toggleCommentValidity = async (id: string, isValid: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('suggestion_comments')
+        .update({ is_valid: isValid })
+        .eq('id', id);
+      
+      if (error) throw error;
+      setSuggestionComments(prev => prev.map(c => c.id === id ? { ...c, is_valid: isValid } : c));
+      toast.success('Komentár upravený');
+    } catch (error) {
+      toast.error('Chyba pri úprave komentára');
+    }
+  };
+
+  const deleteComment = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('suggestion_comments')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      setSuggestionComments(prev => prev.filter(c => c.id !== id));
+      toast.success('Komentár zmazaný');
+    } catch (error) {
+      toast.error('Chyba pri mazaní komentára');
+    }
   };
 
   const fetchDiscordMembers = async () => {
@@ -296,7 +372,11 @@ export default function App() {
   };
 
   const fetchPunishments = async () => {
-    const { data } = await supabase.from('punishments').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('punishments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
     setPunishments(data || []);
   };
 
@@ -316,7 +396,11 @@ export default function App() {
   };
 
   const fetchLogs = async () => {
-    const { data } = await supabase.from('logs').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
     setLogs(data || []);
   };
 
@@ -750,38 +834,47 @@ export default function App() {
 
   const handleEdit = (item: any) => {
     setEditingItem(item);
-    if (activeSection === 'PLAYERS') {
-      if (playersTab === 'BANLIST') {
-        setFormData({
-          ...formData,
-          discord_id: item.discord_id || '',
-          discord_username: item.discord_username || '',
-          type: item.type,
-          reason: item.reason,
-          details: item.details,
-          evidence_url: item.evidence_url,
-          expires_at: item.expires_at ? new Date(item.expires_at).toISOString().slice(0, 16) : '',
-        });
-      } else if (playersTab === 'WATCHLIST') {
-        setFormData({
-          ...formData,
-          description: item.description,
-          discord_id: item.discord_id || '',
-          discord_username: item.discord_username || '',
-          danger_level: item.danger_level,
-          status: item.status,
-          whitelist_status: item.whitelist_status,
-        });
-      }
-    } else if (activeSection === 'BUGS') {
+    
+    // Determine what we're editing based on the item's properties
+    if (item.danger_level) {
+      // It's a watchlist entry
+      setPlayersTab('WATCHLIST');
+      setFormData({
+        ...formData,
+        description: item.description,
+        discord_id: item.discord_id || '',
+        discord_username: item.discord_username || '',
+        danger_level: item.danger_level,
+        status: item.status,
+        whitelist_status: item.whitelist_status,
+      });
+    } else if (item.type === 'WARN' || item.type === 'BAN' || item.type === 'SUSPEND' || item.type === 'WL-DOWN') {
+      // It's a punishment
+      setPlayersTab('BANLIST');
+      setFormData({
+        ...formData,
+        discord_id: item.discord_id || '',
+        discord_username: item.discord_username || '',
+        type: item.type,
+        reason: item.reason,
+        details: item.details,
+        evidence_url: item.evidence_url,
+        expires_at: item.expires_at ? new Date(item.expires_at).toISOString().slice(0, 16) : '',
+      });
+    } else if (activeSection === 'FEEDBACK' || (item.type === 'BUG' || item.type === 'SUGGESTION')) {
       setFormData({
         ...formData,
         title: item.title,
         description: item.description,
         priority: item.priority,
         bug_status: item.status,
+        feedback_type: item.type,
       });
-    } else if (activeSection === 'MEETINGS') {
+      if (item.type === 'SUGGESTION') {
+        setSelectedSuggestion(item);
+        fetchSuggestionComments(item.id);
+      }
+    } else if (activeSection === 'MEETINGS' || item.scheduled_at) {
       setFormData({
         ...formData,
         title: item.title,
@@ -852,8 +945,7 @@ export default function App() {
 
   const activeWarns = formData.discord_id ? punishments.filter(p => 
     p.discord_id === formData.discord_id && 
-    p.type === 'WARN' && 
-    !isExpired(p.expires_at)
+    p.type === 'WARN'
   ).length : 0;
 
   const getTypeIcon = (type: PunishmentType) => {
@@ -1098,34 +1190,55 @@ export default function App() {
               </div>
 
               {/* Feedback Card */}
-              <button 
-                onClick={() => setActiveSection('FEEDBACK')}
-                className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-blue-600/50 transition-all text-left shadow-2xl"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="bg-blue-600/10 p-3 rounded-2xl group-hover:bg-blue-600 transition-all">
-                    <BugIcon className="w-6 h-6 text-blue-500 group-hover:text-white" />
+              {userRank <= 2 && (
+                <button 
+                  onClick={() => setActiveSection('FEEDBACK')}
+                  className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-blue-600/50 transition-all text-left shadow-2xl"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="bg-blue-600/10 p-3 rounded-2xl group-hover:bg-blue-600 transition-all">
+                      <BugIcon className="w-6 h-6 text-blue-500 group-hover:text-white" />
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
                   </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
-                </div>
-                <h3 className="text-xl font-bold">Zpětná vazba</h3>
-                <p className="text-zinc-500 text-sm mt-2">Hlášení chyb a návrhy na zlepšení serveru.</p>
-              </button>
+                  <h3 className="text-xl font-bold">Zpětná vazba</h3>
+                  <p className="text-zinc-500 text-sm mt-2">Hlášení chyb a návrhy na zlepšení serveru.</p>
+                </button>
+              )}
 
               {/* Meetings Card */}
-              <button 
-                onClick={() => setActiveSection('MEETINGS')}
-                className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-purple-600/50 transition-all text-left shadow-2xl"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="bg-purple-600/10 p-3 rounded-2xl group-hover:bg-purple-600 transition-all">
-                    <Calendar className="w-6 h-6 text-purple-500 group-hover:text-white" />
+              {userRank <= 2 && (
+                <button 
+                  onClick={() => setActiveSection('MEETINGS')}
+                  className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-purple-600/50 transition-all text-left shadow-2xl"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="bg-purple-600/10 p-3 rounded-2xl group-hover:bg-purple-600 transition-all">
+                      <Calendar className="w-6 h-6 text-purple-500 group-hover:text-white" />
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
                   </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
-                </div>
-                <h3 className="text-xl font-bold">Meetings</h3>
-                <p className="text-zinc-500 text-sm mt-2">Plánované porady, zápisy a důležité výstupy.</p>
-              </button>
+                  <h3 className="text-xl font-bold">Meetings</h3>
+                  <p className="text-zinc-500 text-sm mt-2">Plánované porady, zápisy a důležité výstupy.</p>
+                </button>
+              )}
+
+              {/* Logs Card (Rank 2) */}
+              {userRank === 2 && (
+                <button 
+                  onClick={() => { setActiveSection('SETTINGS'); setSettingsTab('LOGS'); }}
+                  className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-red-600/50 transition-all text-left shadow-2xl"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="bg-red-600/10 p-3 rounded-2xl group-hover:bg-red-600 transition-all">
+                      <History className="w-6 h-6 text-red-500 group-hover:text-white" />
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
+                  </div>
+                  <h3 className="text-xl font-bold">Systémové Logy</h3>
+                  <p className="text-zinc-500 text-sm mt-2">Sledování administrátorských akcí a změn v systému.</p>
+                </button>
+              )}
             </div>
           </div>
         ) : activeSection === 'SETTINGS' ? (
@@ -1345,6 +1458,12 @@ export default function App() {
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Users className="w-5 h-5 text-indigo-500" /> Správa Hráčů
                 </h2>
+                <button 
+                  onClick={() => setActiveSection('DASHBOARD')}
+                  className="text-xs text-zinc-500 hover:text-white flex items-center gap-1 transition-colors ml-4"
+                >
+                  <ChevronLeft className="w-3 h-3" /> Zpět na Dashboard
+                </button>
                 <div className="h-4 w-px bg-zinc-800 hidden md:block" />
                 <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
                   <button 
@@ -1643,6 +1762,12 @@ export default function App() {
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-blue-500" /> Feedback
                 </h2>
+                <button 
+                  onClick={() => setActiveSection('DASHBOARD')}
+                  className="text-xs text-zinc-500 hover:text-white flex items-center gap-1 transition-colors ml-4"
+                >
+                  <ChevronLeft className="w-3 h-3" /> Zpět na Dashboard
+                </button>
                 <div className="h-4 w-px bg-zinc-800 hidden md:block" />
                 <div className="flex gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
                   <button 
@@ -1772,6 +1897,12 @@ export default function App() {
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-purple-500" /> Meetings
                 </h2>
+                <button 
+                  onClick={() => setActiveSection('DASHBOARD')}
+                  className="text-xs text-zinc-500 hover:text-white flex items-center gap-1 transition-colors ml-4"
+                >
+                  <ChevronLeft className="w-3 h-3" /> Zpět na Dashboard
+                </button>
                 <div className="h-4 w-px bg-zinc-800 hidden md:block" />
                 <div className="relative flex-1 md:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
@@ -2536,6 +2667,47 @@ export default function App() {
                   )}
                 </button>
               </div>
+
+              {activeSection === 'FEEDBACK' && formData.feedback_type === 'SUGGESTION' && editingItem && (
+                <div className="mt-8 pt-8 border-t border-zinc-800 space-y-4">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-blue-500" /> Komentáre k návrhu
+                  </h3>
+                  <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                    {suggestionComments.length === 0 ? (
+                      <p className="text-xs text-zinc-500 italic">Žiadne komentáre.</p>
+                    ) : (
+                      suggestionComments.map((comment) => (
+                        <div key={comment.id} className={cn(
+                          "p-3 rounded-xl border transition-all",
+                          comment.is_valid ? "bg-zinc-800/50 border-zinc-700" : "bg-red-950/20 border-red-900/30 opacity-50"
+                        )}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-bold text-zinc-400">{comment.author_name}</span>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => toggleCommentValidity(comment.id, !comment.is_valid)}
+                                className="text-[9px] font-bold uppercase hover:text-white transition-colors"
+                              >
+                                {comment.is_valid ? 'Zneplatniť' : 'Platný'}
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => deleteComment(comment.id)}
+                                className="text-red-500 hover:text-red-400 transition-colors"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-zinc-300">{comment.content}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </form>
           </div>
         </div>
