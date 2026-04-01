@@ -79,6 +79,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const isVerifyingRef = useRef(false);
+  const isLoggingOutRef = useRef(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -145,7 +146,8 @@ export default function App() {
         }
       } catch (error) {
         console.error("[Auth] Chyba pri inicializácii auth:", error);
-        handleLogout();
+        setLoading(false);
+        setUser(null);
       }
     };
 
@@ -180,6 +182,15 @@ export default function App() {
     const startTime = Date.now();
     console.log(`[Auth] Starting verification for ${currentUser.email}`);
     
+    const timeoutId = setTimeout(() => {
+      if (isVerifyingRef.current) {
+        console.warn("[Auth] Verification timeout reached");
+        setLoading(false);
+        isVerifyingRef.current = false;
+        toast.error("Overovanie trvá príliš dlho. Skúste obnoviť stránku.");
+      }
+    }, 20000); // 20 seconds timeout
+
     try {
       const providerId = String(
         currentUser.user_metadata?.provider_id || 
@@ -216,8 +227,11 @@ export default function App() {
       }
     } catch (e: any) {
       console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
-      handleLogout();
+      setIsAdmin(false);
+      setIsVerified(false);
+      toast.error("Chyba pri overovaní prístupu. Skúste sa prihlásiť znova.");
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
       isVerifyingRef.current = false;
       console.log(`[Auth] Verification finished in ${Date.now() - startTime}ms`);
@@ -538,17 +552,28 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
+
     console.log("[Auth] handleLogout triggered");
+    const toastId = toast.loading("Odhlašování...");
+    
     try {
       await supabase.auth.signOut();
-      localStorage.clear();
-      sessionStorage.clear();
-      window.location.href = '/'; 
     } catch (error) {
       console.error("[Auth] handleLogout error:", error);
+    } finally {
+      setUser(null);
+      setIsAdmin(false);
+      setIsVerified(false);
       localStorage.clear();
       sessionStorage.clear();
-      window.location.href = '/';
+      toast.success("Odhlášeno", { id: toastId });
+      
+      // Use a small delay to ensure toast is visible before reload
+      setTimeout(() => {
+        window.location.href = window.location.origin;
+      }, 500);
     }
   };
 
@@ -635,10 +660,10 @@ export default function App() {
           payload = {
             discord_id: formData.discord_id,
             username: formData.discord_username,
-            rank: formData.rank || 3,
+            rank: formData.rank ?? 3,
             added_by: adminName,
           };
-          logMsg = `Admin: ${formData.discord_username} (Rank: ${formData.rank || 3})`;
+          logMsg = `Admin: ${formData.discord_username} (Rank: ${formData.rank ?? 3})`;
           targetName = formData.discord_username;
         } else if (settingsTab === 'REASONS') {
           table = 'punishment_reasons';
@@ -756,8 +781,8 @@ export default function App() {
       setShowValidationErrors(false);
       setIsSubmitting(false);
       
-      if (activeSection !== 'BANLIST' && table === 'punishments') {
-        setActiveSection('BANLIST');
+      if (activeSection === 'PLAYERS' && table === 'punishments') {
+        setPlayersTab('BANLIST');
       }
       await fetchData();
   };
