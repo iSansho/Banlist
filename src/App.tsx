@@ -106,7 +106,10 @@ export default function App() {
     // Meeting
     scheduled_at: '',
     location: '',
-    summary: ''
+    summary: '',
+
+    // Admin
+    rank: 3
   });
 
     useEffect(() => {
@@ -570,19 +573,27 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    console.log("[Auth] handleLogout triggered");
     try {
-      await supabase.auth.signOut();
-      // Manuálne premazanie všetkého, čo by mohlo držať starú session
+      console.log("[Auth] Calling supabase.auth.signOut()...");
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("[Auth] signOut error:", error);
+      }
+      
+      console.log("[Auth] Clearing local storage and state...");
       localStorage.clear();
       sessionStorage.clear();
       
       setUser(null);
       setIsAdmin(false);
       setIsVerified(false);
+      setUserRank(0);
       
-      // Hard refresh stránky vymaže zvyšné cache v pamäti
+      console.log("[Auth] Redirecting to home...");
       window.location.href = '/'; 
     } catch (error) {
+      console.error("[Auth] handleLogout catch error:", error);
       window.location.reload();
     }
   };
@@ -814,7 +825,8 @@ export default function App() {
       priority: 'LOW',
       bug_status: 'OPEN',
       scheduled_at: '',
-      location: ''
+      location: '',
+      rank: 3
     });
   };
 
@@ -836,7 +848,10 @@ export default function App() {
       switch(activeSection) {
         case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.discord_username || 'Trest'; break;
         case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted'; break;
-        case 'BUGS': table = 'bugs'; name = bugs.find(b => b.id === id)?.title || 'Bug'; break;
+        case 'FEEDBACK': 
+          table = 'bugs'; 
+          name = bugs.find(b => b.id === id)?.title || 'Záznam'; 
+          break;
         case 'MEETINGS': table = 'meetings'; name = meetings.find(m => m.id === id)?.title || 'Meeting'; break;
         case 'SETTINGS':
           if (settingsTab === 'ADMINS') {
@@ -1190,7 +1205,10 @@ export default function App() {
                   </button>
                 )}
                 <button 
-                  onClick={handleLogout}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleLogout();
+                  }}
                   className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
                   title="Odhlásit se"
                 >
