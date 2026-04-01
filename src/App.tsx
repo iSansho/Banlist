@@ -114,13 +114,11 @@ export default function App() {
 
     useEffect(() => {
     // --- VERSION SHIELD: Automatické čistenie cache pri zmene verzie ---
-    const APP_VERSION = '1.9'; 
+    const APP_VERSION = '2.0'; 
     const savedVersion = localStorage.getItem('app_version');
 
-    console.log(`[System] App Version: ${APP_VERSION}, Saved Version: ${savedVersion}`);
-
     if (savedVersion !== APP_VERSION) {
-      console.log("[System] Nová verzia aplikácie. Čistím starú cache...");
+      console.log(`[System] Nová verzia aplikácie (${APP_VERSION}). Čistím cache...`);
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem('app_version', APP_VERSION);
@@ -133,48 +131,40 @@ export default function App() {
       console.log("[Auth] Initializing auth...");
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error("[Auth] Session error:", error);
-          setLoading(false);
-          return;
-        }
+        if (error) throw error;
 
         if (session?.user) {
           console.log("[Auth] Session found for:", session.user.email);
           setUser(session.user);
-          await verifyAndFetchData(session.user);
+          if (!isVerified) {
+            await verifyAndFetchData(session.user);
+          }
         } else {
           console.log("[Auth] No session found.");
           setLoading(false);
         }
       } catch (error) {
         console.error("[Auth] Chyba pri inicializácii auth:", error);
-        setLoading(false);
+        handleLogout();
       }
     };
 
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(`[Auth] Event: ${event}, Session: ${session ? 'Active' : 'None'}`);
+      console.log(`[Auth] Event: ${event}`);
       
       if (event === 'SIGNED_OUT') {
-        console.log('[Auth] User signed out, clearing state');
-        setUser(null);
-        setIsAdmin(false);
-        setIsVerified(false);
-        setUserRank(0);
-        setLoading(false);
-        localStorage.removeItem('supabase.auth.token');
+        handleLogout();
         return;
       }
 
-      if (session?.user) {
-        console.log('[Auth] Valid session found, verifying user');
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
         setUser(session.user);
-        await verifyAndFetchData(session.user);
-      } else {
-        console.log('[Auth] No session, stopping loading');
+        if (!isVerified) {
+          await verifyAndFetchData(session.user);
+        }
+      } else if (!session) {
         setLoading(false);
       }
     });
@@ -183,25 +173,14 @@ export default function App() {
   }, []); // Prázdne pole - spustí sa len raz pri mountnutí
 
     const verifyAndFetchData = async (currentUser: any) => {
-    const startTime = Date.now();
-    console.log(`[Auth] Starting verification for ${currentUser.email} at ${startTime}`);
-
-    // Bráni nekonečnému cyklu overovania
-    if (isVerifyingRef.current) {
-      console.log("[Auth] Verification already in progress, skipping duplicate call.");
-      return;
-    }
+    if (isVerifyingRef.current || isVerified) return;
     
-    if (isVerified && activeSection !== 'DASHBOARD') {
-      console.log("[Auth] Already verified, skipping...");
-      setLoading(false);
-      return;
-    }
-
     isVerifyingRef.current = true;
+    setLoading(true);
+    const startTime = Date.now();
+    console.log(`[Auth] Starting verification for ${currentUser.email}`);
     
     try {
-      // Skúsime získať Discord ID z rôznych možných polí v metadátach
       const providerId = String(
         currentUser.user_metadata?.provider_id || 
         currentUser.user_metadata?.sub || 
@@ -209,53 +188,39 @@ export default function App() {
         currentUser.id
       ).trim();
       
-      console.log(`[Auth] Detected ID: ${providerId}`);
-
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com' || currentUser.user_metadata?.email === 'Floutic@gmail.com'; 
       
-      console.log("[Auth] Checking admin table...");
-      // Použijeme select('*') aby sme predišli chybe ak stĺpec 'rank' ešte neexistuje
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
         .select('*')
         .eq('discord_id', providerId)
         .maybeSingle();
 
-      if (adminError) {
-        console.error("[Auth] Admin check error:", adminError);
-        // Nezhodíme celú appku ak zlyhá dopyt do tabuľky admins
-      }
+      if (adminError) throw adminError;
 
       const isUserAdmin = isSuperAdmin || !!adminData;
-      console.log(`[Auth] Admin Status: ${isUserAdmin}, Rank: ${adminData?.rank || (isSuperAdmin ? 1 : 'N/A')}`);
-      
       setIsAdmin(isUserAdmin);
       
-      // Ak rank neexistuje v DB, defaultne 3 (Support)
       const rank = isSuperAdmin ? 1 : (adminData?.rank || 3);
       setUserRank(rank);
 
       if (isUserAdmin) {
-        console.log("[Auth] Access granted. Unblocking UI and fetching data...");
+        console.log("[Auth] Access granted.");
         setIsVerified(true);
-        setLoading(false); 
-        
-        // Dáta načítame na pozadí
         fetchData();
         fetchPunishmentReasons();
         fetchDiscordMembers(); 
       } else {
-        console.log("[Auth] Access denied for ID:", providerId);
+        console.log("[Auth] Access denied.");
         toast.error(`Prístup zamietnutý. Vaše ID (${providerId}) nie je v zozname administrátorov.`);
-        setLoading(false);
       }
     } catch (e: any) {
       console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
-      toast.error("Chyba pri overovaní prístupu: " + (e.message || "Neznáma chyba"));
-      setLoading(false);
+      handleLogout();
     } finally {
-      console.log(`[Auth] Verification process finished in ${Date.now() - startTime}ms`);
+      setLoading(false);
       isVerifyingRef.current = false;
+      console.log(`[Auth] Verification finished in ${Date.now() - startTime}ms`);
     }
   };
 
@@ -575,26 +540,15 @@ export default function App() {
   const handleLogout = async () => {
     console.log("[Auth] handleLogout triggered");
     try {
-      console.log("[Auth] Calling supabase.auth.signOut()...");
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("[Auth] signOut error:", error);
-      }
-      
-      console.log("[Auth] Clearing local storage and state...");
+      await supabase.auth.signOut();
       localStorage.clear();
       sessionStorage.clear();
-      
-      setUser(null);
-      setIsAdmin(false);
-      setIsVerified(false);
-      setUserRank(0);
-      
-      console.log("[Auth] Redirecting to home...");
       window.location.href = '/'; 
     } catch (error) {
-      console.error("[Auth] handleLogout catch error:", error);
-      window.location.reload();
+      console.error("[Auth] handleLogout error:", error);
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
     }
   };
 
@@ -1020,42 +974,18 @@ export default function App() {
     }
   };
 
-  const [loadingTimeout, setLoadingTimeout] = useState(false);
-
-  useEffect(() => {
-    if (loading) {
-      const timer = setTimeout(() => {
-        setLoadingTimeout(true);
-      }, 8000); // 8 sekúnd pred zobrazením fallbacku
-      return () => clearTimeout(timer);
-    } else {
-      setLoadingTimeout(false);
-    }
-  }, [loading]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-zinc-500 font-medium animate-pulse">Ověřuji přístup...</p>
-          {loadingTimeout && (
-            <div className="flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
-              <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Trvá to príliš dlho?</p>
-              <button 
-                onClick={() => window.location.reload()}
-                className="text-xs text-red-500 underline hover:text-red-400 transition-colors"
-              >
-                Obnoviť stránku
-              </button>
-            </div>
-          )}
         </div>
       </div>
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin || !isVerified) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
         {/* Dekoratívne pozadie (Glow effect) */}
