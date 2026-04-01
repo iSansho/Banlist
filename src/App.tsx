@@ -111,7 +111,7 @@ export default function App() {
 
     useEffect(() => {
     // --- VERSION SHIELD: Automatické čistenie cache pri zmene verzie ---
-    const APP_VERSION = '1.6'; 
+    const APP_VERSION = '1.8'; 
     const savedVersion = localStorage.getItem('app_version');
 
     console.log(`[System] App Version: ${APP_VERSION}, Saved Version: ${savedVersion}`);
@@ -129,7 +129,13 @@ export default function App() {
     const initAuth = async () => {
       console.log("[Auth] Initializing auth...");
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("[Auth] Session error:", error);
+          setLoading(false);
+          return;
+        }
+
         if (session?.user) {
           console.log("[Auth] Session found for:", session.user.email);
           setUser(session.user);
@@ -147,7 +153,7 @@ export default function App() {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[Auth] Event:", event);
+      console.log("[Auth] Event:", event, "User:", session?.user?.email);
       
       if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -157,9 +163,13 @@ export default function App() {
       } else if (session?.user) {
         setUser(session.user);
         // Spustíme overenie len ak je to nová session alebo refresh
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
           await verifyAndFetchData(session.user);
+        } else {
+          setLoading(false);
         }
+      } else {
+        setLoading(false);
       }
     });
 
@@ -185,21 +195,29 @@ export default function App() {
     isVerifyingRef.current = true;
     
     try {
-      const providerId = String(currentUser.user_metadata?.provider_id || currentUser.user_metadata?.sub || currentUser.identities?.[0]?.id || currentUser.id).trim();
-      console.log(`[Auth] Provider ID: ${providerId}`);
+      // Skúsime získať Discord ID z rôznych možných polí v metadátach
+      const providerId = String(
+        currentUser.user_metadata?.provider_id || 
+        currentUser.user_metadata?.sub || 
+        currentUser.identities?.find((i: any) => i.provider === 'discord')?.id ||
+        currentUser.id
+      ).trim();
+      
+      console.log(`[Auth] Detected ID: ${providerId}`);
 
-      const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
+      const isSuperAdmin = currentUser.email === 'Floutic@gmail.com' || currentUser.user_metadata?.email === 'Floutic@gmail.com'; 
       
       console.log("[Auth] Checking admin table...");
+      // Použijeme select('*') aby sme predišli chybe ak stĺpec 'rank' ešte neexistuje
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
-        .select('rank')
+        .select('*')
         .eq('discord_id', providerId)
         .maybeSingle();
 
       if (adminError) {
         console.error("[Auth] Admin check error:", adminError);
-        throw adminError;
+        // Nezhodíme celú appku ak zlyhá dopyt do tabuľky admins
       }
 
       const isUserAdmin = isSuperAdmin || !!adminData;
@@ -207,29 +225,30 @@ export default function App() {
       
       setIsAdmin(isUserAdmin);
       
+      // Ak rank neexistuje v DB, defaultne 3 (Support)
       const rank = isSuperAdmin ? 1 : (adminData?.rank || 3);
       setUserRank(rank);
 
       if (isUserAdmin) {
         console.log("[Auth] Access granted. Unblocking UI and fetching data...");
         setIsVerified(true);
-        setLoading(false); // OKAMŽITÉ ODBLOKOVANIE UI
+        setLoading(false); 
         
-        // Dáta načítame na pozadí, aby sme neblokovali užívateľa
+        // Dáta načítame na pozadí
         fetchData();
         fetchPunishmentReasons();
         fetchDiscordMembers(); 
       } else {
-        console.log("[Auth] Access denied.");
+        console.log("[Auth] Access denied for ID:", providerId);
+        toast.error(`Prístup zamietnutý. Vaše ID (${providerId}) nie je v zozname administrátorov.`);
         setLoading(false);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
-      // V prípade chyby (napr. neplatná session) vynútime čisté odhlásenie
-      handleLogout(); 
+      toast.error("Chyba pri overovaní prístupu: " + (e.message || "Neznáma chyba"));
+      setLoading(false);
     } finally {
       console.log(`[Auth] Verification process finished in ${Date.now() - startTime}ms`);
-      setLoading(false);
       isVerifyingRef.current = false;
     }
   };
@@ -507,12 +526,20 @@ export default function App() {
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'discord',
-      options: {
-        redirectTo: window.location.origin
-      }
-    });
+    console.log("[Auth] Initiating Discord login...");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'discord',
+        options: {
+          redirectTo: window.location.origin,
+          scopes: 'identify email'
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      console.error("[Auth] Discord login error:", error);
+      toast.error("Chyba prihlásenia cez Discord: " + error.message);
+    }
   };
 
   const handleEmailLogin = async (e?: React.FormEvent) => {
@@ -1078,8 +1105,18 @@ export default function App() {
               )}
             </div>
             
-            <div className="mt-8 pt-6 border-t border-zinc-800/50">
+            <div className="mt-8 pt-6 border-t border-zinc-800/50 flex flex-col items-center gap-2">
               <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený systém Genk RP</p>
+              <button 
+                onClick={() => {
+                  const info = `User: ${user?.email || 'None'}\nID: ${user?.id || 'None'}\nMetadata: ${JSON.stringify(user?.user_metadata || {})}`;
+                  console.log("[Auth] Debug Info:", info);
+                  alert(info);
+                }}
+                className="text-[8px] text-zinc-700 hover:text-zinc-500 transition-colors uppercase tracking-widest"
+              >
+                Debug Info
+              </button>
             </div>
           </div>
         </div>
