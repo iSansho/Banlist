@@ -105,85 +105,81 @@ export default function App() {
     summary: ''
   });
 
-  const APP_VERSION = '1.2'; // Zmeň toto číslo (napr. na 1.3), keď urobíš veľkú zmenu v auth systéme
-
     useEffect(() => {
-      // --- VERSION SHIELD (Profesionálna metóda čistenia cache) ---
-      const APP_VERSION = '1.3'; // Zmeň toto číslo pri ďalšom veľkom update
-      const savedVersion = localStorage.getItem('app_version');
+    // --- VERSION SHIELD: Automatické čistenie cache pri zmene verzie ---
+    const APP_VERSION = '1.4'; // Pri ďalšom probléme s cache zmeň na 1.5
+    const savedVersion = localStorage.getItem('app_version');
 
-      if (savedVersion !== APP_VERSION) {
-        console.log("Detegovaná nová verzia aplikácie. Čistím starú cache...");
-        localStorage.clear();
-        sessionStorage.clear();
-        localStorage.setItem('app_version', APP_VERSION);
-        // Hard refresh pre zabezpečenie čistého štartu
-        window.location.reload();
-        return;
-      }
+    if (savedVersion !== APP_VERSION) {
+      console.log("Nová verzia aplikácie. Čistím starú cache...");
+      localStorage.clear();
+      sessionStorage.clear();
+      localStorage.setItem('app_version', APP_VERSION);
+      window.location.reload();
+      return;
+    }
 
-      // --- ŠTANDARDNÝ AUTH LISTENER ---
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log("Auth Event:", event); // Pomôže ti pri debugovaní vo F12
-
-        if (session?.user) {
-          setUser(session.user);
-          // Overujeme len ak nie sme verifikovaní, alebo pri explicitnom prihlásení/obnove tokenu
-          if (!isVerified || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            await verifyAndFetchData(session.user);
-          }
-        } else {
-          // Ak nie je session, okamžite vypneme loading (ukáže sa Login obrazovka)
-          setUser(null);
-          setIsAdmin(false);
-          setIsVerified(false);
-          setLoading(false);
+    // --- AUTH LISTENER: Riadenie prístupu ---
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        // Overujeme len ak nie sme verifikovaní alebo pri novom prihlásení
+        if (!isVerified || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          await verifyAndFetchData(session.user);
         }
-      });
+      } else {
+        // Okamžitý reset pri odhlásení
+        setUser(null);
+        setIsAdmin(false);
+        setIsVerified(false);
+        setLoading(false);
+      }
+    });
 
-      return () => subscription.unsubscribe();
-    }, [isVerified]);
+    return () => subscription.unsubscribe();
+  }, [isVerified]);
 
     const verifyAndFetchData = async (currentUser: any) => {
-      if (isVerifyingRef.current) return;
-      isVerifyingRef.current = true;
+    // Bráni nekonečnému cyklu overovania
+    if (isVerifyingRef.current) return;
+    isVerifyingRef.current = true;
+    
+    try {
+      const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
+      const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
       
-      try {
-        const providerId = currentUser.user_metadata?.provider_id || currentUser.id;
-        const isSuperAdmin = currentUser.email === 'Floutic@gmail.com'; 
-        
-        const { data: adminData, error: adminError } = await supabase
-          .from('admins')
-          .select('*')
-          .eq('discord_id', providerId)
-          .maybeSingle();
+      const { data: adminData, error: adminError } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('discord_id', providerId)
+        .maybeSingle();
 
-        if (adminError) throw adminError;
+      if (adminError) throw adminError;
 
-        const isUserAdmin = isSuperAdmin || !!adminData;
-        setIsAdmin(isUserAdmin);
+      const isUserAdmin = isSuperAdmin || !!adminData;
+      setIsAdmin(isUserAdmin);
 
-        if (isUserAdmin) {
-          // Paralelné načítanie pre maximálnu rýchlosť
-          await Promise.all([
-            fetchData(),
-            fetchDiscordMembers(), // Zabezpečí okamžité fungovanie vyhľadávania
-            fetchPunishmentReasons()
-          ]);
-          setIsVerified(true);
-        } else {
-          console.warn("Užívateľ nie je v databáze adminov.");
-          setLoading(false);
-        }
-      } catch (e) {
-        console.error("Kritická chyba pri overovaní session. Vynucujem odhlásenie...", e);
-        // Ak sa niečo pokazí kvôli starej cache, handleLogout() ju kompletne prečistí
-        handleLogout(); 
-      } finally {
+      if (isUserAdmin) {
+        // Načítame všetky potrebné dáta súčasne
+        await Promise.all([
+          fetchData(),
+          fetchDiscordMembers(), // Toto opravuje vyhľadávanie v modale
+          fetchPunishmentReasons()
+        ]);
+        setIsVerified(true);
+      } else {
+        // Ak užívateľ nie je admin, vypneme loading aby videl "Prístup zamietnutý"
         setLoading(false);
-        isVerifyingRef.current = false;
       }
-    };
+    } catch (e) {
+      console.error("Kritická chyba pri overovaní prístupu:", e);
+      // V prípade chyby (napr. neplatná session) vynútime čisté odhlásenie
+      handleLogout(); 
+    } finally {
+      setLoading(false);
+      isVerifyingRef.current = false;
+    }
+  };
 
   const fetchPunishmentReasons = async () => {
     const { data, error } = await supabase
