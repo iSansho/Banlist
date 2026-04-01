@@ -111,7 +111,7 @@ export default function App() {
 
     useEffect(() => {
     // --- VERSION SHIELD: Automatické čistenie cache pri zmene verzie ---
-    const APP_VERSION = '1.8'; 
+    const APP_VERSION = '1.9'; 
     const savedVersion = localStorage.getItem('app_version');
 
     console.log(`[System] App Version: ${APP_VERSION}, Saved Version: ${savedVersion}`);
@@ -153,22 +153,25 @@ export default function App() {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[Auth] Event:", event, "User:", session?.user?.email);
+      console.log(`[Auth] Event: ${event}, Session: ${session ? 'Active' : 'None'}`);
       
       if (event === 'SIGNED_OUT') {
+        console.log('[Auth] User signed out, clearing state');
         setUser(null);
         setIsAdmin(false);
         setIsVerified(false);
+        setUserRank(0);
         setLoading(false);
-      } else if (session?.user) {
+        localStorage.removeItem('supabase.auth.token');
+        return;
+      }
+
+      if (session?.user) {
+        console.log('[Auth] Valid session found, verifying user');
         setUser(session.user);
-        // Spustíme overenie len ak je to nová session alebo refresh
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-          await verifyAndFetchData(session.user);
-        } else {
-          setLoading(false);
-        }
+        await verifyAndFetchData(session.user);
       } else {
+        console.log('[Auth] No session, stopping loading');
         setLoading(false);
       }
     });
@@ -667,9 +670,10 @@ export default function App() {
           payload = {
             discord_id: formData.discord_id,
             username: formData.discord_username,
+            rank: formData.rank || 3,
             added_by: adminName,
           };
-          logMsg = `Přidán nový admin: ${formData.discord_username}`;
+          logMsg = `Admin: ${formData.discord_username} (Rank: ${formData.rank || 3})`;
           targetName = formData.discord_username;
         } else if (settingsTab === 'REASONS') {
           table = 'punishment_reasons';
@@ -819,20 +823,36 @@ export default function App() {
     
     let table = '';
     let name = '';
-    switch(activeSection) {
-      case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.target_name || 'Trest'; break;
-      case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.target_name || 'Wanted'; break;
-      case 'BUGS': table = 'bugs'; name = bugs.find(b => b.id === id)?.title || 'Bug'; break;
-      case 'MEETINGS': table = 'meetings'; name = meetings.find(m => m.id === id)?.title || 'Meeting'; break;
-      case 'SETTINGS':
-        if (settingsTab === 'ADMINS') {
-          table = 'admins';
-          name = admins.find(a => a.id === id)?.username || 'Admin';
-        } else if (settingsTab === 'REASONS') {
-          table = 'punishment_reasons';
-          name = punishmentReasons.find(r => r.id === id)?.label || 'Důvod';
-        }
-        break;
+    
+    if (activeSection === 'PLAYERS') {
+      if (playersTab === 'BANLIST') {
+        table = 'punishments';
+        name = punishments.find(p => p.id === id)?.discord_username || 'Trest';
+      } else {
+        table = 'wanted';
+        name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted';
+      }
+    } else {
+      switch(activeSection) {
+        case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.discord_username || 'Trest'; break;
+        case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted'; break;
+        case 'BUGS': table = 'bugs'; name = bugs.find(b => b.id === id)?.title || 'Bug'; break;
+        case 'MEETINGS': table = 'meetings'; name = meetings.find(m => m.id === id)?.title || 'Meeting'; break;
+        case 'SETTINGS':
+          if (settingsTab === 'ADMINS') {
+            table = 'admins';
+            name = admins.find(a => a.id === id)?.username || 'Admin';
+          } else if (settingsTab === 'REASONS') {
+            table = 'punishment_reasons';
+            name = punishmentReasons.find(r => r.id === id)?.label || 'Důvod';
+          }
+          break;
+      }
+    }
+
+    if (!table) {
+      console.error("[System] Could not determine table for deletion. Section:", activeSection, "Tab:", playersTab);
+      return;
     }
 
     const { error } = await supabase.from(table).delete().eq('id', id);
@@ -915,6 +935,7 @@ export default function App() {
           ...formData,
           discord_id: item.discord_id || '',
           discord_username: item.username || '',
+          rank: item.rank || 3,
         });
       } else if (settingsTab === 'REASONS') {
         setFormData({
@@ -1227,7 +1248,7 @@ export default function App() {
               </div>
 
               {/* Feedback Card */}
-              {userRank <= 2 && (
+              {userRank <= 3 && (
                 <button 
                   onClick={() => setActiveSection('FEEDBACK')}
                   className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-blue-600/50 transition-all text-left shadow-2xl"
@@ -1244,7 +1265,7 @@ export default function App() {
               )}
 
               {/* Meetings Card */}
-              {userRank <= 2 && (
+              {userRank <= 3 && (
                 <button 
                   onClick={() => setActiveSection('MEETINGS')}
                   className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-purple-600/50 transition-all text-left shadow-2xl"
@@ -1391,6 +1412,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-zinc-800/50 border-b border-zinc-800">
                           <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
+                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Rank</th>
                           <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Přidán</th>
                           <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
                         </tr>
@@ -1405,6 +1427,15 @@ export default function App() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-widest ${
+                                admin.rank === 1 ? 'bg-red-500/20 text-red-400' :
+                                admin.rank === 2 ? 'bg-orange-500/20 text-orange-400' :
+                                'bg-zinc-800 text-zinc-400'
+                              }`}>
+                                {admin.rank === 1 ? 'Majitel' : admin.rank === 2 ? 'Vedení' : 'Admin'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
                               <div className="flex flex-col">
                                 <span className="text-[10px] text-zinc-400">{format(parseISO(admin.created_at), 'd. MMMM yyyy', { locale: cs })}</span>
                                 <span className="text-[9px] text-zinc-600">od {admin.added_by}</span>
@@ -1413,13 +1444,13 @@ export default function App() {
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button 
-                                  onClick={() => handleEdit(admin)}
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(admin); }}
                                   className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-blue-500 transition-all"
                                 >
                                   <Edit className="w-3.5 h-3.5" />
                                 </button>
                                 <button 
-                                  onClick={() => handleDelete(admin.id)}
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(admin.id); }}
                                   className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -1466,13 +1497,13 @@ export default function App() {
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button 
-                                  onClick={() => handleEdit(reason)}
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(reason); }}
                                   className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-blue-500 transition-all"
                                 >
                                   <Edit className="w-3.5 h-3.5" />
                                 </button>
                                 <button 
-                                  onClick={() => handleDelete(reason.id)}
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(reason.id); }}
                                   className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-500 hover:text-red-500 transition-all"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -1660,14 +1691,14 @@ export default function App() {
                                   {isAdmin && (
                                     <>
                                       <button 
-                                        onClick={() => handleEdit(p)}
+                                        onClick={(e) => { e.stopPropagation(); handleEdit(p); }}
                                         className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
                                         title="Upravit"
                                       >
                                         <Edit2 className="w-3.5 h-3.5" />
                                       </button>
                                       <button 
-                                        onClick={() => handleDelete(p.id)}
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
                                         className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
                                         title="Smazat"
                                       >
@@ -1774,10 +1805,16 @@ export default function App() {
                             <td className="px-6 py-4 text-right">
                               {isAdmin && (
                                 <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={() => handleEdit(w)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleEdit(w); }} 
+                                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors"
+                                  >
                                     <Edit2 className="w-4 h-4" />
                                   </button>
-                                  <button onClick={() => handleDelete(w.id)} className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} 
+                                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors"
+                                  >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
@@ -1911,10 +1948,16 @@ export default function App() {
                         <td className="px-4 py-3 text-right">
                           {isAdmin && (
                             <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEdit(b)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleEdit(b); }} 
+                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
+                              >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => handleDelete(b.id)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }} 
+                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors"
+                              >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -2007,10 +2050,16 @@ export default function App() {
                         <td className="px-4 py-3 text-right">
                           {isAdmin && (
                             <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEdit(m)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleEdit(m); }} 
+                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
+                              >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => handleDelete(m.id)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }} 
+                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors"
+                              >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -2479,6 +2528,18 @@ export default function App() {
                         value={formData.discord_id}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Rank</label>
+                    <select 
+                      value={formData.rank}
+                      onChange={(e) => setFormData({ ...formData, rank: parseInt(e.target.value) })}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                    >
+                      <option value={1}>Majitel</option>
+                      <option value={2}>Vedení</option>
+                      <option value={3}>Admin</option>
+                    </select>
                   </div>
                 </div>
               )}
