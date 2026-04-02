@@ -48,7 +48,7 @@ export default function App() {
     if (typeof window === 'undefined') return true;
     // Rýchla synchrónna kontrola existencie session v localStorage
     const hasToken = Object.keys(localStorage).some(key => key.includes('-auth-token'));
-    const wasVerified = localStorage.getItem('is_verified') === 'true';
+    const wasVerified = localStorage.getItem('is_verified') === 'true' || sessionStorage.getItem('session_verified') === 'true';
     
     // Ak bol overený a má token, loading je false (optimistický štart)
     if (hasToken && wasVerified) return false;
@@ -63,8 +63,12 @@ export default function App() {
   const [isVerified, setIsVerified] = useState(() => {
     if (typeof window === 'undefined') return false;
     // Optimistické načítanie stavu overenia z localStorage pre okamžitý štart
-    return localStorage.getItem('is_verified') === 'true';
+    return localStorage.getItem('is_verified') === 'true' || sessionStorage.getItem('session_verified') === 'true';
   });
+
+  useEffect(() => {
+    isVerifiedRef.current = isVerified;
+  }, [isVerified]);
   const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
   const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
   const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
@@ -102,6 +106,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const isVerifyingRef = useRef(false);
+  const isVerifiedRef = useRef(false);
   const isLoggingOutRef = useRef(false);
 
   // Form state
@@ -156,29 +161,37 @@ export default function App() {
 
     // --- AUTH INITIALIZATION & LISTENER ---
     const initAuth = async () => {
-      console.log("[Auth] Initializing auth...");
+      const sessionVerified = sessionStorage.getItem('session_verified') === 'true';
+      
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
 
         if (session?.user) {
-          console.log("[Auth] Session found for:", session.user.email);
           setUser(session.user);
-          if (!isVerified) {
+          if (sessionVerified) {
+            setIsVerified(true);
+            setIsAdmin(true);
+            setLoading(false);
+            fetchData();
+            fetchPunishmentReasons();
+            fetchDiscordMembers();
+          } else {
             await verifyAndFetchData(session.user);
           }
         } else {
-          console.log("[Auth] No session found.");
           setLoading(false);
         }
       } catch (error) {
         console.error("[Auth] Chyba pri inicializácii auth:", error);
         setLoading(false);
-        setUser(null);
       }
     };
 
-    initAuth();
+    const isAuthRedirect = window.location.hash.includes('access_token=') || window.location.search.includes('code=');
+    if (!isAuthRedirect) {
+      initAuth();
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log(`[Auth] Event: ${event}`);
@@ -188,13 +201,13 @@ export default function App() {
         return;
       }
 
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        setUser(session.user);
-        if (!isVerified) {
-          await verifyAndFetchData(session.user);
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        if (session?.user) {
+          setUser(session.user);
+          if (!isVerifiedRef.current && !isVerifyingRef.current) {
+            await verifyAndFetchData(session.user);
+          }
         }
-      } else if (!session) {
-        setLoading(false);
       }
     });
 
@@ -228,11 +241,11 @@ export default function App() {
       
       const isSuperAdmin = currentUser.email === 'Floutic@gmail.com' || currentUser.user_metadata?.email === 'Floutic@gmail.com'; 
       
-      // Skúsime nájsť admina podľa Discord ID alebo Emailu (uloženého v username)
+      // Skúsime nájsť admina podľa Discord ID alebo Emailu
       const { data: adminData, error: adminError } = await supabase
         .from('admins')
         .select('*')
-        .or(`discord_id.eq.${providerId},username.eq.${currentUser.email}`)
+        .or(`discord_id.eq.${providerId},email.eq.${currentUser.email}`)
         .maybeSingle();
 
       if (adminError) throw adminError;
@@ -246,25 +259,24 @@ export default function App() {
       if (isUserAdmin) {
         console.log("[Auth] Access granted.");
         setIsVerified(true);
-        localStorage.setItem('is_verified', 'true');
-        setLoading(false); // Okamžite skryjeme loading pre admina
+        sessionStorage.setItem('session_verified', 'true');
+        setLoading(false);
         
-        // Dáta sťahujeme na pozadí
         fetchData();
         fetchPunishmentReasons();
         fetchDiscordMembers(); 
       } else {
         console.log("[Auth] Access denied.");
         setIsVerified(false);
-        localStorage.removeItem('is_verified');
-        setLoading(false); // Skryjeme loading aj pri zamietnutí
+        sessionStorage.removeItem('session_verified');
+        setLoading(false);
         toast.error(`Prístup zamietnutý. Vaše ID/Email nie je v zozname administrátorov.`);
       }
     } catch (e: any) {
       console.error("[Auth] Kritická chyba pri overovaní prístupu:", e);
       setIsAdmin(false);
       setIsVerified(false);
-      localStorage.removeItem('is_verified');
+      sessionStorage.removeItem('session_verified');
       setLoading(false);
       toast.error("Chyba pri overovaní prístupu.");
     } finally {
@@ -1547,7 +1559,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : settingsTab === 'REASONS' ? (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <p className="text-xs text-zinc-500">Seznam předdefinovaných důvodů pro tresty.</p>
@@ -1597,6 +1609,72 @@ export default function App() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-red-500" />
+                    Změna hesla
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Nové heslo</label>
+                      <input 
+                        type="password" 
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Potvrdit heslo</label>
+                      <input 
+                        type="password" 
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <button 
+                      onClick={handleUpdatePassword}
+                      disabled={isUpdatingPassword}
+                      className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                    >
+                      {isUpdatingPassword ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Key className="w-4 h-4" />
+                      )}
+                      Aktualizovat heslo
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-zinc-500" />
+                    Informace o účtu
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between py-2 border-b border-zinc-800/50">
+                      <span className="text-zinc-500">Email:</span>
+                      <span className="text-white font-medium">{user?.email}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-800/50">
+                      <span className="text-zinc-500">ID:</span>
+                      <span className="text-zinc-400 font-mono text-xs">{user?.id}</span>
+                    </div>
+                    <div className="flex justify-between py-2">
+                      <span className="text-zinc-500">Rank:</span>
+                      <span className="text-red-500 font-bold">
+                        {userRank === 1 ? 'Majitel' : userRank === 2 ? 'Vedení' : 'Admin'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2583,148 +2661,111 @@ export default function App() {
               )}
 
               {activeSection === 'SETTINGS' && settingsTab === 'ADMINS' && (
-                <div className="space-y-4">
-                  <div className="flex gap-2 p-1 bg-zinc-900 rounded-lg mb-4">
-                    <button 
+                <div className="space-y-6">
+                  <div className="flex items-center gap-4 bg-zinc-950/50 p-1 rounded-xl border border-zinc-800">
+                    <button
                       type="button"
                       onClick={() => setAuthMethod('discord')}
-                      className={cn("flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all", 
-                        authMethod === 'discord' ? "bg-zinc-800 text-white" : "text-zinc-500")}
-                    >DISCORD</button>
-                    <button 
+                      className={cn(
+                        "flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2",
+                        authMethod === 'discord' ? "bg-indigo-600 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                    >
+                      <Users className="w-3.5 h-3.5" /> Discord
+                    </button>
+                    <button
                       type="button"
                       onClick={() => setAuthMethod('email')}
-                      className={cn("flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all", 
-                        authMethod === 'email' ? "bg-zinc-800 text-white" : "text-zinc-500")}
-                    >EMAIL</button>
+                      className={cn(
+                        "flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2",
+                        authMethod === 'email' ? "bg-indigo-600 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Email
+                    </button>
                   </div>
 
-                  {authMethod === 'discord' ? (
-                    <>
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat Admina z Discordu</label>
-                        <DiscordUserSearch 
-                          placeholder="Hledat uživatele..."
-                          value={formData.discord_username}
-                          onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {authMethod === 'discord' ? (
+                      <>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Vybrat z Discordu</label>
+                          <DiscordUserSearch 
+                            placeholder="Hledat admina..."
+                            value={formData.discord_username}
+                            onSelect={(m) => setFormData({ ...formData, discord_id: m.id, discord_username: m.username })}
+                          />
+                        </div>
                         <div>
                           <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord Username</label>
                           <input 
+                            required
                             type="text" 
-                            readOnly
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed"
+                            className={cn(
+                              "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                              showValidationErrors && !formData.discord_username ? "border-red-500 focus:ring-red-500/50" : "border-zinc-800 focus:ring-indigo-500/50"
+                            )}
                             value={formData.discord_username}
+                            onChange={e => setFormData({...formData, discord_username: e.target.value})}
                           />
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Discord ID</label>
                           <input 
+                            required
                             type="text" 
-                            readOnly
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm text-zinc-400 cursor-not-allowed font-mono"
+                            className={cn(
+                              "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                              showValidationErrors && !formData.discord_id ? "border-red-500 focus:ring-red-500/50" : "border-zinc-800 focus:ring-indigo-500/50"
+                            )}
                             value={formData.discord_id}
+                            onChange={e => setFormData({...formData, discord_id: e.target.value})}
                           />
                         </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Email</label>
-                        <input 
-                          type="email" 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                          value={formData.email}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                          placeholder="admin@genk.rp"
-                        />
-                      </div>
-                      <p className="text-[10px] text-zinc-500 italic">
-                        * Admin se bude muset zaregistrovat s tímto emailem na přihlašovací stránce.
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Rank</label>
-                    <select 
-                      value={formData.rank}
-                      onChange={(e) => setFormData({ ...formData, rank: parseInt(e.target.value) })}
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                    >
-                      <option value={1}>Majitel</option>
-                      <option value={2}>Vedení</option>
-                      <option value={3}>Admin</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {activeSection === 'SETTINGS' && settingsTab === 'ACCOUNT' && (
-                <div className="space-y-6">
-                  <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-red-500" />
-                      Změna hesla
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Nové heslo</label>
-                        <input 
-                          type="password" 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          placeholder="••••••••"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Potvrdit heslo</label>
-                        <input 
-                          type="password" 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="••••••••"
-                        />
-                      </div>
-                      <button 
-                        onClick={handleUpdatePassword}
-                        disabled={isUpdatingPassword}
-                        className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                      </>
+                    ) : (
+                      <>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Email</label>
+                          <input 
+                            required
+                            type="email" 
+                            className={cn(
+                              "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                              showValidationErrors && !formData.email ? "border-red-500 focus:ring-red-500/50" : "border-zinc-800 focus:ring-indigo-500/50"
+                            )}
+                            value={formData.email}
+                            onChange={e => setFormData({...formData, email: e.target.value})}
+                            placeholder="admin@example.com"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Dočasné heslo</label>
+                          <input 
+                            required={!editingItem}
+                            type="text" 
+                            className={cn(
+                              "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
+                              showValidationErrors && !formData.password && !editingItem ? "border-red-500 focus:ring-red-500/50" : "border-zinc-800 focus:ring-indigo-500/50"
+                            )}
+                            value={formData.password}
+                            onChange={e => setFormData({...formData, password: e.target.value})}
+                            placeholder="Minimálně 6 znaků"
+                          />
+                        </div>
+                      </>
+                    )}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Rank</label>
+                      <select 
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                        value={formData.rank}
+                        onChange={e => setFormData({...formData, rank: parseInt(e.target.value)})}
                       >
-                        {isUpdatingPassword ? (
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        ) : (
-                          <Key className="w-4 h-4" />
-                        )}
-                        Aktualizovat heslo
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                      <Users className="w-5 h-5 text-zinc-500" />
-                      Informace o účtu
-                    </h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between py-2 border-b border-zinc-800/50">
-                        <span className="text-zinc-500">Email:</span>
-                        <span className="text-white font-medium">{user?.email}</span>
-                      </div>
-                      <div className="flex justify-between py-2 border-b border-zinc-800/50">
-                        <span className="text-zinc-500">ID:</span>
-                        <span className="text-zinc-400 font-mono text-xs">{user?.id}</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-zinc-500">Rank:</span>
-                        <span className="text-red-500 font-bold">
-                          {userRank === 1 ? 'Majitel' : userRank === 2 ? 'Vedení' : 'Admin'}
-                        </span>
-                      </div>
+                        <option value={3}>Admin</option>
+                        <option value={2}>Vedení</option>
+                        <option value={1}>Majitel</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -2739,19 +2780,12 @@ export default function App() {
                       type="text" 
                       className={cn(
                         "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
-                        showValidationErrors && !formData.reason 
-                          ? "border-red-500 focus:ring-red-500/50" 
-                          : "border-zinc-800 focus:ring-indigo-500/50"
+                        showValidationErrors && !formData.reason ? "border-red-500 focus:ring-red-500/50" : "border-zinc-800 focus:ring-indigo-500/50"
                       )}
                       value={formData.reason}
                       onChange={e => setFormData({...formData, reason: e.target.value})}
-                      placeholder="např. Combatlog"
+                      placeholder="např. RDM / VDM"
                     />
-                    {showValidationErrors && !formData.reason && (
-                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
-                      </p>
-                    )}
                   </div>
                 </div>
               )}
