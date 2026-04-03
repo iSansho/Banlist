@@ -53,10 +53,10 @@ export interface Meeting {
   created_at: string;
   title: string;
   description: string;
-  summary?: string;
-  scheduled_at: string;
-  location: string;
-  organizer_name: string;
+  category: 'BUG' | 'SUGGESTION' | 'COMPLAINT';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'INBOX' | 'AGENDA' | 'RESOLVED' | 'ARCHIVED';
+  organizer_name: string; // Author
 }
 
 export interface Log {

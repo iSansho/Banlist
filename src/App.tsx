@@ -36,10 +36,27 @@ import {
   Gavel,
   Loader2,
   MessageSquare,
-  Key
+  Key,
+  Inbox,
+  ListTodo,
+  Archive,
+  User,
+  Lock,
+  Copy
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason, SuggestionComment } from './lib/supabase';
+
+// Utility pro sanitizaci HTML proti XSS
+const escapeHtml = (unsafe: string | null | undefined) => {
+  if (!unsafe) return '';
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+};
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -103,6 +120,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
+  const [selectedPlayerHistory, setSelectedPlayerHistory] = useState<{discord_id: string, discord_username: string} | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const isVerifyingRef = useRef(false);
@@ -133,10 +151,9 @@ export default function App() {
     feedback_type: 'BUG' as 'BUG' | 'SUGGESTION',
 
     // Meeting
-    scheduled_at: '',
-    location: '',
-    summary: '',
-
+    category: 'BUG' as 'BUG' | 'SUGGESTION' | 'COMPLAINT',
+    meeting_status: 'INBOX' as 'INBOX' | 'AGENDA' | 'RESOLVED' | 'ARCHIVED',
+    
     // Admin
     rank: 3,
     email: '',
@@ -645,6 +662,58 @@ export default function App() {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.dataTransfer.setData('meetingId', id);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent, newStatus: 'INBOX' | 'AGENDA' | 'RESOLVED') => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('meetingId');
+    if (!id) return;
+
+    const meeting = meetings.find(m => m.id === id);
+    if (!meeting || meeting.status === newStatus) return;
+
+    // Optimistic update
+    setMeetings(meetings.map(m => m.id === id ? { ...m, status: newStatus } : m));
+
+    const { error } = await supabase
+      .from('meetings')
+      .update({ status: newStatus })
+      .eq('id', id);
+
+    if (error) {
+      toast.error('Chyba při přesunu: ' + error.message);
+      fetchData(); // Revert
+    } else {
+      logAction('Přesun Meetingu', meeting.title, `Nový status: ${newStatus}`);
+    }
+  };
+
+  const archiveResolved = async () => {
+    if (!confirm('Opravdu chcete archivovat všechny vyřešené podněty?')) return;
+
+    const resolvedMeetings = meetings.filter(m => m.status === 'RESOLVED');
+    if (resolvedMeetings.length === 0) return;
+
+    const { error } = await supabase
+      .from('meetings')
+      .update({ status: 'ARCHIVED' })
+      .in('id', resolvedMeetings.map(m => m.id));
+
+    if (error) {
+      toast.error('Chyba při archivaci: ' + error.message);
+    } else {
+      toast.success('Podněty byly archivovány.');
+      logAction('Archivace Meetings', 'Hromadná akce', `${resolvedMeetings.length} podnětů`);
+      fetchData();
+    }
+  };
+
   const handleLogout = async () => {
     if (isLoggingOutRef.current) return;
     isLoggingOutRef.current = true;
@@ -689,7 +758,7 @@ export default function App() {
         if (!formData.title || !formData.description) isValid = false;
         break;
       case 'MEETINGS':
-        if (!formData.title || !formData.scheduled_at || !formData.location) isValid = false;
+        if (!formData.title || !formData.category || !formData.priority) isValid = false;
         break;
     }
 
@@ -713,7 +782,7 @@ export default function App() {
         if (playersTab === 'BANLIST') {
           // Warn Limit Check
           if (formData.type === 'WARN' && activeWarns >= 3) {
-            if (!confirm(`Hráč má již ${activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN. Opravdu chcete pokračovat s WARNEM?`)) {
+            if (!confirm(`Hráč má ${activeWarns} aktívnych warnov. Odporúčaný trest: BAN. Naozaj chcete pokračovať s WARN?`)) {
               setIsSubmitting(false);
               return;
             }
@@ -798,12 +867,12 @@ export default function App() {
         payload = {
           title: formData.title,
           description: formData.description,
-          summary: formData.summary,
-          scheduled_at: formData.scheduled_at,
-          location: formData.location,
+          category: formData.category,
+          priority: formData.priority,
+          status: formData.meeting_status,
           organizer_name: adminName,
         };
-        logMsg = `Kdy: ${formData.scheduled_at}, Kde: ${formData.location}`;
+        logMsg = `Kategorie: ${formData.category}, Priorita: ${formData.priority}`;
         targetName = formData.title;
         break;
     }
@@ -909,9 +978,12 @@ export default function App() {
       title: '',
       priority: 'LOW',
       bug_status: 'OPEN',
-      scheduled_at: '',
-      location: '',
-      rank: 3
+      category: 'BUG',
+      meeting_status: 'INBOX',
+      feedback_type: 'BUG',
+      rank: 3,
+      email: '',
+      password: ''
     });
   };
 
@@ -963,20 +1035,28 @@ export default function App() {
     }
   };
 
-  const getRelativeTime = (dateStr: string | null) => {
-    if (!dateStr) return 'Perma';
+  const formatExpiration = (dateStr: string | null) => {
+    if (!dateStr) return null;
     const date = parseISO(dateStr);
     const now = new Date();
     
-    if (isAfter(now, date)) return 'Skončil';
+    if (isAfter(now, date)) return 'VYPRŠELÉ';
     
-    const diffInDays = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffInDays > 0) return `o ${diffInDays} d${diffInDays === 1 ? 'en' : (diffInDays < 5 ? 'ni' : 'ní')}`;
+    const diffMs = date.getTime() - now.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
     
-    const diffInHours = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60));
-    if (diffInHours > 0) return `o ${diffInHours} h`;
-    
-    return 'Brzy skončí';
+    if (diffDays > 0) {
+      return `za ${diffDays} d${diffDays === 1 ? 'en' : (diffDays < 5 ? 'ni' : 'ní')}`;
+    } else {
+      return `za ${diffHours} hodin${diffHours === 1 ? 'u' : (diffHours > 1 && diffHours < 5 ? 'y' : '')}`;
+    }
+  };
+
+  const handleCopyId = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    toast.success('Discord ID skopírované!');
   };
 
   const handleEdit = (item: any) => {
@@ -1021,13 +1101,14 @@ export default function App() {
         setSelectedSuggestion(item);
         fetchSuggestionComments(item.id);
       }
-    } else if (activeSection === 'MEETINGS' || item.scheduled_at) {
+    } else if (activeSection === 'MEETINGS' || item.category) {
       setFormData({
         ...formData,
         title: item.title,
         description: item.description,
-        scheduled_at: item.scheduled_at ? new Date(item.scheduled_at).toISOString().slice(0, 16) : '',
-        location: item.location,
+        category: item.category || 'BUG',
+        priority: item.priority || 'LOW',
+        meeting_status: item.status || 'INBOX',
       });
     } else if (activeSection === 'SETTINGS') {
       if (settingsTab === 'ADMINS') {
@@ -1082,7 +1163,7 @@ export default function App() {
   const filteredMeetings = meetings.filter(m => {
     const matchesSearch = (m.title?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) || 
                          (m.description?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) ||
-                         (m.location?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false);
+                         (m.organizer_name?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false);
     return matchesSearch;
   });
 
@@ -1298,6 +1379,43 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         {activeSection === 'DASHBOARD' ? (
           <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-12">
+            {/* Statistics Row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
+              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl flex items-center gap-4">
+                <div className="bg-red-500/10 p-4 rounded-2xl">
+                  <Ban className="w-8 h-8 text-red-500" />
+                </div>
+                <div>
+                  <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Aktuálne Banov</p>
+                  <p className="text-3xl font-black text-white">
+                    {punishments.filter(p => p.type === 'BAN' && !isExpired(p.expires_at)).length}
+                  </p>
+                </div>
+              </div>
+              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl flex items-center gap-4">
+                <div className="bg-yellow-500/10 p-4 rounded-2xl">
+                  <ListTodo className="w-8 h-8 text-yellow-500" />
+                </div>
+                <div>
+                  <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Podnety na poradu</p>
+                  <p className="text-3xl font-black text-white">
+                    {meetings.filter(m => m.status === 'INBOX' || m.status === 'AGENDA').length}
+                  </p>
+                </div>
+              </div>
+              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl flex items-center gap-4">
+                <div className="bg-orange-500/10 p-4 rounded-2xl">
+                  <Eye className="w-8 h-8 text-orange-500" />
+                </div>
+                <div>
+                  <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Hráči na Watchliste</p>
+                  <p className="text-3xl font-black text-white">
+                    {wantedList.filter(w => w.status === 'ACTIVE').length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-5xl">
               {/* Players Card */}
               <div className="group relative bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-red-600/50 transition-all shadow-2xl flex flex-col">
@@ -1335,19 +1453,24 @@ export default function App() {
 
               {/* Feedback Card */}
               {userRank <= 3 && (
-                <button 
-                  onClick={() => setActiveSection('FEEDBACK')}
-                  className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-blue-600/50 transition-all text-left shadow-2xl"
+                <div 
+                  className="relative group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left shadow-2xl overflow-hidden"
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="bg-blue-600/10 p-3 rounded-2xl group-hover:bg-blue-600 transition-all">
-                      <BugIcon className="w-6 h-6 text-blue-500 group-hover:text-white" />
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-10">
+                    <Lock className="w-8 h-8 text-zinc-400 mb-2" />
+                    <span className="text-zinc-300 font-bold tracking-widest">IN DEVELOPMENT</span>
                   </div>
-                  <h3 className="text-xl font-bold">Zpětná vazba</h3>
-                  <p className="text-zinc-500 text-sm mt-2">Hlášení chyb a návrhy na zlepšení serveru.</p>
-                </button>
+                  <div className="opacity-50">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="bg-blue-600/10 p-3 rounded-2xl">
+                        <BugIcon className="w-6 h-6 text-blue-500" />
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-zinc-600" />
+                    </div>
+                    <h3 className="text-xl font-bold">Zpětná vazba</h3>
+                    <p className="text-zinc-500 text-sm mt-2">Hlášení chyb a návrhy na zlepšení serveru.</p>
+                  </div>
+                </div>
               )}
 
               {/* Meetings Card */}
@@ -1757,124 +1880,113 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Typ</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Důvod</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Expirace</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Admin</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-800">
-                        {loading ? (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 animate-pulse">Načítám záznamy...</td>
-                          </tr>
-                        ) : filteredPunishments.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
-                          </tr>
-                        ) : filteredPunishments.map((p) => {
-                          const expired = isExpired(p.expires_at);
-                          const isBan = p.type === 'BAN';
-                          
-                          return (
-                            <tr 
-                              key={p.id} 
-                              onClick={() => setViewingPunishment(p)}
-                              className={cn(
-                                "group hover:bg-zinc-800/30 transition-colors border-b border-zinc-800/50 last:border-0 cursor-pointer",
-                                isBan && !expired && "border-l-2 border-l-red-600",
-                                expired && "opacity-50"
+                <div className="space-y-4">
+                  {loading ? (
+                    <div className="text-center py-12 text-zinc-500 animate-pulse">Načítám záznamy...</div>
+                  ) : filteredPunishments.length === 0 ? (
+                    <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
+                  ) : (
+                    <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
+                      {filteredPunishments.map((p) => {
+                        const expired = isExpired(p.expires_at);
+                        const isBan = p.type === 'BAN';
+                        
+                        return (
+                          <div key={p.id} className="relative pl-6 group">
+                            <div className={cn(
+                              "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
+                              p.type === 'BAN' ? "bg-red-500" :
+                              p.type === 'WARN' ? "bg-orange-500" :
+                              p.type === 'KICK' ? "bg-yellow-500" : "bg-blue-500"
+                            )} />
+                            <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors relative">
+                              {isAdmin && (
+                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={(e) => { e.stopPropagation(); handleEdit(p); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               )}
-                            >
-                              <td className="px-4 py-3">
-                                <div className="font-bold text-sm text-zinc-100">{p.discord_username || 'Neznámý'}</div>
-                                <div className="text-[10px] text-zinc-500 font-mono tracking-tighter">{p.discord_id || 'Neznámé'}</div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <div className="scale-75 origin-left">{getTypeIcon(p.type)}</div>
-                                  <span className="text-[11px] font-bold tracking-tight">{p.type}</span>
+                              <div className="flex flex-wrap items-center gap-4 mb-2 pr-20">
+                                <span className={cn(
+                                  "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
+                                  p.type === 'BAN' ? "bg-red-500/10 text-red-500" :
+                                  p.type === 'WARN' ? "bg-orange-500/10 text-orange-500" :
+                                  p.type === 'KICK' ? "bg-yellow-500/10 text-yellow-500" : "bg-blue-500/10 text-blue-500"
+                                )}>
+                                  {p.type}
+                                </span>
+                                <span className="text-xs text-zinc-400 font-medium">
+                                  {format(parseISO(p.created_at), 'dd.MM.yyyy HH:mm')}
+                                </span>
+                                <div 
+                                  className="font-bold text-sm text-zinc-100 hover:text-blue-400 cursor-pointer transition-colors flex items-center gap-2"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedPlayerHistory({ discord_id: p.discord_id, discord_username: p.discord_username || 'Neznámý' });
+                                  }}
+                                >
+                                  <User className="w-4 h-4 text-zinc-500" />
+                                  {p.discord_username || 'Neznámý'}
+                                  <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
+                                    ({p.discord_id || 'Neznámé'})
+                                    {p.discord_id && (
+                                      <button 
+                                        onClick={(e) => handleCopyId(e, p.discord_id!)}
+                                        className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
+                                        title="Kopírovat Discord ID"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </span>
                                 </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="text-xs text-zinc-300 max-w-[200px] truncate" title={p.reason}>
-                                  {p.reason}
-                                </div>
-                                {p.details && <div className="text-[9px] text-zinc-500 truncate max-w-[200px] italic">{p.details}</div>}
-                              </td>
-                              <td className="px-4 py-3">
-                                {expired ? (
-                                  <span className="text-[9px] bg-zinc-800 text-zinc-500 font-bold uppercase px-2 py-1 rounded-md border border-zinc-700/50">SKONČIL</span>
-                                ) : (
-                                  <span className="text-[9px] bg-green-500/10 text-green-500 font-bold uppercase px-2 py-1 rounded-md border border-green-500/20">AKTIVNÍ</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5 text-[11px]">
+                              </div>
+                              
+                              <div className="mb-3">
+                                <h4 className="text-sm font-bold text-zinc-100 mb-1">{escapeHtml(p.reason)}</h4>
+                                {p.details && <p className="text-xs text-zinc-400">{escapeHtml(p.details)}</p>}
+                              </div>
+                              
+                              <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-zinc-500">Uděleno:</span>
+                                    <span className="text-zinc-300 font-bold">{p.admin_name}</span>
+                                  </div>
                                   {p.expires_at ? (
-                                    <div 
-                                      className="group/time relative cursor-help border-b border-dotted border-zinc-600 hover:border-zinc-400 transition-colors"
-                                      title={format(parseISO(p.expires_at), 'dd.MM.yy HH:mm', { locale: cs })}
-                                    >
-                                      <span className={cn("font-medium", expired ? "text-zinc-500" : "text-zinc-300")}>
-                                        {getRelativeTime(p.expires_at)}
-                                      </span>
-                                    </div>
+                                    <span className={cn(
+                                      "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
+                                      expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
+                                    )}>
+                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expires_at), 'dd.MM.yyyy')} - ${formatExpiration(p.expires_at)}`}
+                                    </span>
                                   ) : (
-                                    <span className="text-red-500 font-black text-[10px] uppercase tracking-tighter">PERMA</span>
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
+                                      Permanentní
+                                    </span>
                                   )}
                                 </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="text-[11px] text-zinc-400">{p.admin_name}</div>
-                              </td>
-                              <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  {p.evidence_url && (
-                                    <a 
-                                      href={p.evidence_url} 
-                                      target="_blank" 
-                                      rel="noreferrer"
-                                      className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-blue-400 transition-colors"
-                                      title="Důkaz"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5" />
-                                    </a>
-                                  )}
-                                  {isAdmin && (
-                                    <>
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleEdit(p); }}
-                                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
-                                        title="Upravit"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-red-500 transition-colors"
-                                        title="Smazat"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                {p.evidence_url && (
+                                  <a 
+                                    href={p.evidence_url} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20"
+                                  >
+                                    <ExternalLink className="w-3 h-3" /> Zobrazit důkaz
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -1903,89 +2015,86 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Uživatel</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Úroveň</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Popis</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Status</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-800">
-                        {filteredWanted.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
-                          </tr>
-                        ) : filteredWanted.map((w) => (
-                          <tr 
-                            key={w.id} 
-                            onClick={() => handleEdit(w)}
-                            className="hover:bg-zinc-800/30 transition-colors group cursor-pointer"
-                          >
-                            <td className="px-6 py-4">
-                              <div className="flex flex-col">
-                                <span className="font-bold text-sm">{w.discord_username || 'Neznámý'}</span>
-                                <span className="text-[10px] text-zinc-500 font-mono">{w.discord_id || 'Neznámé ID'}</span>
+                <div className="space-y-4">
+                  {filteredWanted.length === 0 ? (
+                    <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
+                  ) : (
+                    <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
+                      {filteredWanted.map((w) => (
+                        <div key={w.id} className="relative pl-6 group">
+                          <div className={cn(
+                            "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
+                            w.danger_level === 'EXTREME' ? "bg-red-500" :
+                            w.danger_level === 'HIGH' ? "bg-orange-500" :
+                            w.danger_level === 'MEDIUM' ? "bg-yellow-500" : "bg-zinc-500"
+                          )} />
+                          <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors relative">
+                            {isAdmin && (
+                              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={(e) => { e.stopPropagation(); handleEdit(w); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </div>
-                            </td>
-                            <td className="px-6 py-4">
+                            )}
+                            <div className="flex flex-wrap items-center gap-4 mb-2 pr-20">
                               <span className={cn(
-                                "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
+                                "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
                                 w.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
                                 w.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
                                 w.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
                               )}>
                                 {w.danger_level}
                               </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <p className="text-xs text-zinc-400 line-clamp-1 max-w-xs">{w.description}</p>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex gap-2">
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
+                                w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
+                              )}>
+                                {w.status}
+                              </span>
+                              {w.whitelist_status !== 'NONE' && (
                                 <span className={cn(
-                                  "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                                  w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
+                                  "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
+                                  w.whitelist_status === 'REVOKED' ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-500"
                                 )}>
-                                  {w.status}
+                                  WL: {w.whitelist_status}
                                 </span>
-                                {w.whitelist_status !== 'NONE' && (
-                                  <span className={cn(
-                                    "text-[10px] font-bold uppercase px-2 py-1 rounded-md",
-                                    w.whitelist_status === 'ALLOWED' ? "bg-blue-500/10 text-blue-500" : "bg-red-500/10 text-red-500"
-                                  )}>
-                                    WL: {w.whitelist_status === 'ALLOWED' ? 'OK' : 'KO'}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              {isAdmin && (
-                                <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); handleEdit(w); }} 
-                                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors"
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} 
-                                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
                               )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                              <div className="font-bold text-sm text-zinc-100 flex items-center gap-2">
+                                <User className="w-4 h-4 text-zinc-500" />
+                                {w.discord_username || 'Neznámý'}
+                                <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
+                                  ({w.discord_id || 'Neznámé ID'})
+                                  {w.discord_id && (
+                                    <button 
+                                      onClick={(e) => handleCopyId(e, w.discord_id!)}
+                                      className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
+                                      title="Kopírovat Discord ID"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="mb-3">
+                              <p className="text-sm text-zinc-300">{escapeHtml(w.description)}</p>
+                            </div>
+                            
+                            <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-zinc-500">Přidáno:</span>
+                                <span className="text-zinc-400">{format(parseISO(w.created_at), 'dd.MM.yyyy HH:mm')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -2093,8 +2202,8 @@ export default function App() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-sm font-medium text-zinc-200">{b.title}</div>
-                          <p className="text-[10px] text-zinc-500 line-clamp-1">{b.description}</p>
+                          <div className="text-sm font-medium text-zinc-200">{escapeHtml(b.title)}</div>
+                          <p className="text-[10px] text-zinc-500 line-clamp-1">{escapeHtml(b.description)}</p>
                         </td>
                         <td className="px-4 py-3">
                           <span className={cn(
@@ -2149,88 +2258,93 @@ export default function App() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                   <input 
                     type="text" 
-                    placeholder="Hledat meeting..." 
+                    placeholder="Hledat podnět..." 
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-purple-500 outline-none transition-all"
                     value={meetingsSearchTerm}
                     onChange={(e) => setMeetingsSearchTerm(e.target.value)}
                   />
                 </div>
               </div>
-              {isAdmin && (
-                <button 
-                  onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
-                  className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Naplánovat Meeting
-                </button>
-              )}
-            </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-zinc-800/50 border-b border-zinc-800">
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Datum</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Čas</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Název</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Lokalita</th>
-                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-right">Akce</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800">
-                    {filteredMeetings.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
-                      </tr>
-                    ) : filteredMeetings.map((m) => (
-                      <tr key={m.id} className="hover:bg-zinc-800/30 transition-colors group">
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col">
-                            <span className="text-xs font-bold text-purple-500 uppercase">{format(parseISO(m.scheduled_at), 'MMM', { locale: cs })}</span>
-                            <span className="text-lg font-black leading-none">{format(parseISO(m.scheduled_at), 'dd')}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-zinc-300 font-mono">
-                          {format(parseISO(m.scheduled_at), 'HH:mm')}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm font-bold text-zinc-100">{m.title}</div>
-                          <p className="text-[10px] text-zinc-500 line-clamp-1">{m.description}</p>
-                          {m.summary && (
-                            <div className="mt-1 p-2 bg-zinc-800/50 rounded border border-zinc-700/50">
-                              <p className="text-[10px] text-zinc-400 italic line-clamp-2">
-                                <span className="font-bold text-purple-400 not-italic mr-1">Shrnutí:</span>
-                                {m.summary}
-                              </p>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-zinc-400">
-                          {m.location}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {isAdmin && (
-                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleEdit(m); }} 
-                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }} 
-                                className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-500 transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                {isAdmin && (
+                  <>
+                    <button 
+                      onClick={archiveResolved}
+                      className="flex-1 md:flex-none bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 border border-zinc-700"
+                    >
+                      <Archive className="w-3.5 h-3.5" /> Archivovat vyřešené
+                    </button>
+                    <button 
+                      onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
+                      className="flex-1 md:flex-none bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Nový podnět
+                    </button>
+                  </>
+                )}
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {['INBOX', 'AGENDA', 'RESOLVED'].map((status) => (
+                <div 
+                  key={status} 
+                  className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex flex-col h-[600px]"
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, status as any)}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                      {status === 'INBOX' && <Inbox className="w-4 h-4 text-blue-500" />}
+                      {status === 'AGENDA' && <ListTodo className="w-4 h-4 text-yellow-500" />}
+                      {status === 'RESOLVED' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                      {status}
+                    </h3>
+                    <span className="bg-zinc-800 text-zinc-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {filteredMeetings.filter(m => m.status === status).length}
+                    </span>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                    {filteredMeetings.filter(m => m.status === status).map((m) => (
+                      <div 
+                        key={m.id}
+                        draggable={isAdmin}
+                        onDragStart={(e) => handleDragStart(e, m.id)}
+                        className={cn(
+                          "bg-zinc-950 border border-zinc-800 rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-zinc-700 transition-all group",
+                          m.priority === 'HIGH' ? 'border-l-2 border-l-red-500' : 
+                          m.priority === 'MEDIUM' ? 'border-l-2 border-l-yellow-500' : 
+                          'border-l-2 border-l-blue-500'
+                        )}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <span className={cn(
+                            "text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                            m.category === 'BUG' ? "bg-red-500/10 text-red-500" :
+                            m.category === 'SUGGESTION' ? "bg-green-500/10 text-green-500" :
+                            "bg-orange-500/10 text-orange-500"
+                          )}>
+                            {m.category}
+                          </span>
+                          {isAdmin && (
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleEdit(m)} className="text-zinc-500 hover:text-white"><Edit2 className="w-3 h-3" /></button>
+                              <button onClick={() => handleDelete(m.id)} className="text-zinc-500 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-bold text-zinc-100 mb-1">{escapeHtml(m.title)}</h4>
+                        <p className="text-xs text-zinc-500 line-clamp-2 mb-3">{escapeHtml(m.description)}</p>
+                        <div className="flex items-center justify-between text-[10px] text-zinc-600">
+                          <span className="flex items-center gap-1"><User className="w-3 h-3" /> {m.organizer_name}</span>
+                          <span>{format(parseISO(m.created_at), 'dd.MM.yyyy')}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ) : activeSection === 'LOGS' ? (
@@ -2289,8 +2403,8 @@ export default function App() {
                               {log.action}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-xs text-zinc-300">{log.target_name}</td>
-                          <td className="px-4 py-3 text-[10px] text-zinc-500 italic truncate max-w-xs">{log.details}</td>
+                          <td className="px-4 py-3 text-xs text-zinc-300">{escapeHtml(log.target_name)}</td>
+                          <td className="px-4 py-3 text-[10px] text-zinc-500 italic truncate max-w-xs">{escapeHtml(log.details)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2331,6 +2445,114 @@ export default function App() {
       </main>
 
       {/* Modal */}
+      {selectedPlayerHistory && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={() => setSelectedPlayerHistory(null)}
+        >
+          <div 
+            className="bg-zinc-900 border border-zinc-800 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30 shrink-0">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <History className="w-5 h-5 text-blue-500" />
+                Historie trestů: {selectedPlayerHistory.discord_username}
+                <span className="text-xs text-zinc-500 font-mono font-normal ml-2">({selectedPlayerHistory.discord_id})</span>
+              </h2>
+              <button onClick={() => setSelectedPlayerHistory(null)} className="text-zinc-500 hover:text-white transition-colors">
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto custom-scrollbar">
+              <div className="space-y-4">
+                {punishments.filter(p => p.discord_id === selectedPlayerHistory.discord_id).length === 0 ? (
+                  <div className="text-center py-12 text-zinc-500">Hráč nemá žádné záznamy o trestech.</div>
+                ) : (
+                  <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
+                    {punishments
+                      .filter(p => p.discord_id === selectedPlayerHistory.discord_id)
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                      .map((p, idx) => {
+                        const expired = isExpired(p.expires_at);
+                        return (
+                          <div key={p.id} className="relative pl-6">
+                            <div className={cn(
+                              "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
+                              p.type === 'BAN' ? "bg-red-500" :
+                              p.type === 'WARN' ? "bg-orange-500" :
+                              p.type === 'KICK' ? "bg-yellow-500" : "bg-blue-500"
+                            )} />
+                            <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors">
+                              <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
+                                    p.type === 'BAN' ? "bg-red-500/10 text-red-500" :
+                                    p.type === 'WARN' ? "bg-orange-500/10 text-orange-500" :
+                                    p.type === 'KICK' ? "bg-yellow-500/10 text-yellow-500" : "bg-blue-500/10 text-blue-500"
+                                  )}>
+                                    {p.type}
+                                  </span>
+                                  <span className="text-xs text-zinc-400 font-medium">
+                                    {format(parseISO(p.created_at), 'dd.MM.yyyy HH:mm')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-zinc-500">Uděleno:</span>
+                                  <span className="text-zinc-300 font-bold">{p.admin_name}</span>
+                                </div>
+                              </div>
+                              <div className="mb-3">
+                                <h4 className="text-sm font-bold text-zinc-100 mb-1">{escapeHtml(p.reason)}</h4>
+                                {p.details && <p className="text-xs text-zinc-400">{escapeHtml(p.details)}</p>}
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
+                                <div className="flex items-center gap-2">
+                                  {p.expires_at ? (
+                                    <span className={cn(
+                                      "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
+                                      expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
+                                    )}>
+                                      {expired ? 'Vypršel' : 'Aktivní'} do {format(parseISO(p.expires_at), 'dd.MM.yyyy HH:mm')}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
+                                      Permanentní
+                                    </span>
+                                  )}
+                                </div>
+                                {p.evidence_url && (
+                                  <a 
+                                    href={p.evidence_url} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                                  >
+                                    <ExternalLink className="w-3 h-3" /> Zobrazit důkaz
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-zinc-800 bg-zinc-800/30 flex justify-end shrink-0">
+              <button 
+                onClick={() => setSelectedPlayerHistory(null)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-bold transition-colors"
+              >
+                Zavřít
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isModalOpen && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
@@ -2362,7 +2584,7 @@ export default function App() {
                       <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                       <div>
                         <p className="text-sm font-bold text-red-500 uppercase tracking-tight">Upozornění: Maximální počet warnů</p>
-                        <p className="text-xs text-red-400/80">Tento hráč má již {activeWarns} aktivní warny. Podle pravidel by měl být 4. trest BAN, ne další WARN.</p>
+                        <p className="text-xs text-red-400/80">Hráč už má 3 varovania, nasleduje BAN!</p>
                       </div>
                     </div>
                   )}
@@ -2874,7 +3096,7 @@ export default function App() {
               {activeSection === 'MEETINGS' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Název Meetingu</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Titulok</label>
                     <input 
                       required
                       type="text" 
@@ -2894,63 +3116,37 @@ export default function App() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Datum a Čas</label>
-                    <input 
-                      required
-                      type="datetime-local" 
-                      className={cn(
-                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
-                        showValidationErrors && !formData.scheduled_at
-                          ? "border-red-500 focus:ring-red-500/50"
-                          : "border-zinc-800 focus:ring-purple-500/50"
-                      )}
-                      value={formData.scheduled_at}
-                      onChange={e => setFormData({...formData, scheduled_at: e.target.value})}
-                    />
-                    {showValidationErrors && !formData.scheduled_at && (
-                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
-                      </p>
-                    )}
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Kategória</label>
+                    <select 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      value={formData.category}
+                      onChange={e => setFormData({...formData, category: e.target.value as any})}
+                    >
+                      <option value="BUG">Bug</option>
+                      <option value="SUGGESTION">Návrh</option>
+                      <option value="COMPLAINT">Sťažnosť</option>
+                    </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Lokalita</label>
-                    <input 
-                      required
-                      type="text" 
-                      className={cn(
-                        "w-full bg-zinc-950 border rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 transition-all",
-                        showValidationErrors && !formData.location
-                          ? "border-red-500 focus:ring-red-500/50"
-                          : "border-zinc-800 focus:ring-purple-500/50"
-                      )}
-                      value={formData.location}
-                      onChange={e => setFormData({...formData, location: e.target.value})}
-                      placeholder="např. Discord / In-game"
-                    />
-                    {showValidationErrors && !formData.location && (
-                      <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Toto pole je povinné
-                      </p>
-                    )}
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Priorita</label>
+                    <select 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      value={formData.priority}
+                      onChange={e => setFormData({...formData, priority: e.target.value as any})}
+                    >
+                      <option value="LOW">Nízka</option>
+                      <option value="MEDIUM">Stredná</option>
+                      <option value="HIGH">Vysoká</option>
+                    </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Agenda / Popis</label>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Popis</label>
                     <textarea 
                       required
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 h-24 resize-none"
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
-                      placeholder="Co se bude probírat?"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Shrnutí Meetingu (Zápis)</label>
-                    <textarea 
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 h-32 resize-none"
-                      value={formData.summary}
-                      onChange={e => setFormData({...formData, summary: e.target.value})}
-                      placeholder="Vycuc z meetingu, klíčové body, co se dohodlo..."
+                      placeholder="Detailný popis..."
                     />
                   </div>
                 </div>
