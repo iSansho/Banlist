@@ -555,9 +555,9 @@ export default function App() {
                     <span className="text-xs font-bold text-white">{m.global_name || m.username}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-zinc-500">@{m.username} • {m.id}</span>
-                      {punishments.filter(p => p.discord_id === m.id && p.type === 'WARN' && !isExpired(p.expires_at)).length > 0 && (
+                      {punishments.filter(p => p.player_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length > 0 && (
                         <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-1 rounded font-bold">
-                          {punishments.filter(p => p.discord_id === m.id && p.type === 'WARN' && !isExpired(p.expires_at)).length} WARNS
+                          {punishments.filter(p => p.player_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length} WARNS
                         </span>
                       )}
                     </div>
@@ -790,18 +790,16 @@ export default function App() {
 
           table = 'punishments';
           payload = {
-            discord_id: formData.discord_id,
-            discord_username: formData.discord_username,
+            player_id: formData.discord_id,
             type: formData.type,
             reason: formData.reason,
             details: formData.details,
-            evidence_url: formData.evidence_url,
-            expires_at: formData.expires_at || null,
-            admin_discord_id: adminDiscordId,
+            proof_url: formData.evidence_url,
+            expiry_date: formData.expires_at ? new Date(formData.expires_at).toISOString() : null,
             admin_name: adminName,
           };
           logMsg = `${formData.type}: ${formData.reason}`;
-          targetName = formData.discord_username || formData.discord_id;
+          targetName = formData.discord_id;
         } else {
           table = 'wanted';
           payload = {
@@ -996,14 +994,14 @@ export default function App() {
     if (activeSection === 'PLAYERS') {
       if (playersTab === 'BANLIST') {
         table = 'punishments';
-        name = punishments.find(p => p.id === id)?.discord_username || 'Trest';
+        name = punishments.find(p => p.id === id)?.player_id || 'Trest';
       } else {
         table = 'wanted';
         name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted';
       }
     } else {
       switch(activeSection) {
-        case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.discord_username || 'Trest'; break;
+        case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.player_id || 'Trest'; break;
         case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted'; break;
         case 'FEEDBACK': 
           table = 'bugs'; 
@@ -1080,13 +1078,13 @@ export default function App() {
       setPlayersTab('BANLIST');
       setFormData({
         ...formData,
-        discord_id: item.discord_id || '',
-        discord_username: item.discord_username || '',
+        discord_id: item.player_id || '',
+        discord_username: item.player_id || '',
         type: item.type,
         reason: item.reason,
         details: item.details,
-        evidence_url: item.evidence_url,
-        expires_at: item.expires_at ? new Date(item.expires_at).toISOString().slice(0, 16) : '',
+        evidence_url: item.proof_url,
+        expires_at: item.expiry_date ? new Date(item.expiry_date).toISOString().slice(0, 16) : '',
       });
     } else if (activeSection === 'FEEDBACK' || (item.type === 'BUG' || item.type === 'SUGGESTION')) {
       setFormData({
@@ -1129,8 +1127,7 @@ export default function App() {
   };
 
   const filteredPunishments = punishments.filter(p => {
-    const matchesSearch = (p.discord_username?.toLowerCase().includes(searchTerm.toLowerCase()) || false) || 
-                         (p.discord_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+    const matchesSearch = (p.player_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
     const matchesType = typeFilter === 'ALL' || p.type === typeFilter;
     return matchesSearch && matchesType;
   });
@@ -1173,7 +1170,7 @@ export default function App() {
   };
 
   const activeWarns = formData.discord_id ? punishments.filter(p => 
-    p.discord_id === formData.discord_id && 
+    p.player_id === formData.discord_id && 
     p.type === 'WARN'
   ).length : 0;
 
@@ -1388,7 +1385,7 @@ export default function App() {
                 <div>
                   <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Aktuálne Banov</p>
                   <p className="text-3xl font-black text-white">
-                    {punishments.filter(p => p.type === 'BAN' && !isExpired(p.expires_at)).length}
+                    {punishments.filter(p => p.type === 'BAN' && !isExpired(p.expiry_date)).length}
                   </p>
                 </div>
               </div>
@@ -1888,7 +1885,7 @@ export default function App() {
                   ) : (
                     <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
                       {filteredPunishments.map((p) => {
-                        const expired = isExpired(p.expires_at);
+                        const expired = isExpired(p.expiry_date);
                         const isBan = p.type === 'BAN';
                         
                         return (
@@ -1926,16 +1923,16 @@ export default function App() {
                                   className="font-bold text-sm text-zinc-100 hover:text-blue-400 cursor-pointer transition-colors flex items-center gap-2"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setSelectedPlayerHistory({ discord_id: p.discord_id, discord_username: p.discord_username || 'Neznámý' });
+                                    setSelectedPlayerHistory({ discord_id: p.player_id, discord_username: p.player_id || 'Neznámý' });
                                   }}
                                 >
                                   <User className="w-4 h-4 text-zinc-500" />
-                                  {p.discord_username || 'Neznámý'}
+                                  {p.player_id || 'Neznámý'}
                                   <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
-                                    ({p.discord_id || 'Neznámé'})
-                                    {p.discord_id && (
+                                    ({p.player_id || 'Neznámé'})
+                                    {p.player_id && (
                                       <button 
-                                        onClick={(e) => handleCopyId(e, p.discord_id!)}
+                                        onClick={(e) => handleCopyId(e, p.player_id!)}
                                         className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
                                         title="Kopírovat Discord ID"
                                       >
@@ -1957,12 +1954,12 @@ export default function App() {
                                     <span className="text-zinc-500">Uděleno:</span>
                                     <span className="text-zinc-300 font-bold">{p.admin_name}</span>
                                   </div>
-                                  {p.expires_at ? (
+                                  {p.expiry_date ? (
                                     <span className={cn(
                                       "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
                                       expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
                                     )}>
-                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expires_at), 'dd.MM.yyyy')} - ${formatExpiration(p.expires_at)}`}
+                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} - ${formatExpiration(p.expiry_date)}`}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
@@ -1970,9 +1967,9 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {p.evidence_url && (
+                                {p.proof_url && (
                                   <a 
-                                    href={p.evidence_url} 
+                                    href={p.proof_url} 
                                     target="_blank" 
                                     rel="noreferrer"
                                     className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20"
@@ -2466,15 +2463,15 @@ export default function App() {
             </div>
             <div className="p-6 overflow-y-auto custom-scrollbar">
               <div className="space-y-4">
-                {punishments.filter(p => p.discord_id === selectedPlayerHistory.discord_id).length === 0 ? (
+                {punishments.filter(p => p.player_id === selectedPlayerHistory.discord_id).length === 0 ? (
                   <div className="text-center py-12 text-zinc-500">Hráč nemá žádné záznamy o trestech.</div>
                 ) : (
                   <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
                     {punishments
-                      .filter(p => p.discord_id === selectedPlayerHistory.discord_id)
+                      .filter(p => p.player_id === selectedPlayerHistory.discord_id)
                       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                       .map((p, idx) => {
-                        const expired = isExpired(p.expires_at);
+                        const expired = isExpired(p.expiry_date);
                         return (
                           <div key={p.id} className="relative pl-6">
                             <div className={cn(
@@ -2509,12 +2506,12 @@ export default function App() {
                               </div>
                               <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
                                 <div className="flex items-center gap-2">
-                                  {p.expires_at ? (
+                                  {p.expiry_date ? (
                                     <span className={cn(
                                       "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
                                       expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
                                     )}>
-                                      {expired ? 'Vypršel' : 'Aktivní'} do {format(parseISO(p.expires_at), 'dd.MM.yyyy HH:mm')}
+                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} - ${formatExpiration(p.expiry_date)}`}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
@@ -2522,9 +2519,9 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {p.evidence_url && (
+                                {p.proof_url && (
                                   <a 
-                                    href={p.evidence_url} 
+                                    href={p.proof_url} 
                                     target="_blank" 
                                     rel="noreferrer"
                                     className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
@@ -3253,8 +3250,8 @@ export default function App() {
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Hráč</label>
-                  <p className="text-lg font-bold text-zinc-100">{viewingPunishment.discord_username || 'Neznámý'}</p>
-                  <p className="text-xs text-zinc-500 font-mono">{viewingPunishment.discord_id || 'Neznámé ID'}</p>
+                  <p className="text-lg font-bold text-zinc-100">{viewingPunishment.player_id || 'Neznámý'}</p>
+                  <p className="text-xs text-zinc-500 font-mono">{viewingPunishment.player_id || 'Neznámé ID'}</p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Typ Trestu</label>
@@ -3285,30 +3282,29 @@ export default function App() {
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Administrátor</label>
                   <p className="text-sm font-bold text-zinc-300">{viewingPunishment.admin_name}</p>
-                  <p className="text-[10px] text-zinc-500 font-mono">{viewingPunishment.admin_discord_id}</p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Expirace</label>
                   <p className="text-sm font-bold text-zinc-300">
-                    {viewingPunishment.expires_at 
-                      ? format(parseISO(viewingPunishment.expires_at), 'dd.MM.yyyy HH:mm', { locale: cs })
+                    {viewingPunishment.expiry_date 
+                      ? format(parseISO(viewingPunishment.expiry_date), 'dd.MM.yyyy HH:mm', { locale: cs })
                       : 'Permanentní'}
                   </p>
-                  {viewingPunishment.expires_at && (
+                  {viewingPunishment.expiry_date && (
                     <p className={cn(
                       "text-[10px] font-bold uppercase mt-0.5",
-                      isExpired(viewingPunishment.expires_at) ? "text-zinc-600" : "text-green-500"
+                      isExpired(viewingPunishment.expiry_date) ? "text-zinc-600" : "text-green-500"
                     )}>
-                      {isExpired(viewingPunishment.expires_at) ? 'Trest vypršel' : 'Aktivní trest'}
+                      {isExpired(viewingPunishment.expiry_date) ? 'Trest vypršel' : 'Aktivní trest'}
                     </p>
                   )}
                 </div>
               </div>
 
-              {viewingPunishment.evidence_url && (
+              {viewingPunishment.proof_url && (
                 <div className="pt-4">
                   <a 
-                    href={viewingPunishment.evidence_url}
+                    href={viewingPunishment.proof_url}
                     target="_blank"
                     rel="noreferrer"
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"

@@ -14,14 +14,12 @@ export type PunishmentType = 'WARN' | 'BAN' | 'WL-DOWN' | 'SUSPEND';
 export interface Punishment {
   id: string;
   created_at: string;
-  discord_id: string;
-  discord_username: string;
+  player_id: string;
   type: PunishmentType;
   reason: string;
   details: string;
-  evidence_url: string;
-  expires_at: string | null;
-  admin_discord_id: string;
+  proof_url: string;
+  expiry_date: string | null;
   admin_name: string;
 }
 
