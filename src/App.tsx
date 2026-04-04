@@ -443,11 +443,12 @@ export default function App() {
   };
 
   const fetchPunishments = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('punishments')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(1000);
+    if (error) console.error('Error fetching punishments:', error);
     setPunishments(data || []);
   };
 
@@ -1130,24 +1131,24 @@ export default function App() {
   };
 
   const filteredPunishments = punishments.filter(p => {
-    const matchesSearch = (p.player_discord_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false) || 
-                          (p.player_name?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+    const matchesSearch = ((p.player_discord_id || '').toLowerCase().includes(searchTerm.toLowerCase())) || 
+                          ((p.player_name || '').toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesType = typeFilter === 'ALL' || p.type === typeFilter;
     return matchesSearch && matchesType;
   });
 
   const filteredWanted = wantedList.filter(w => {
-    const matchesSearch = (w.discord_username?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false) || 
-                         (w.discord_id?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false) ||
-                         (w.description?.toLowerCase().includes(wantedSearchTerm.toLowerCase()) || false);
+    const matchesSearch = ((w.discord_username || '').toLowerCase().includes(wantedSearchTerm.toLowerCase())) || 
+                         ((w.discord_id || '').toLowerCase().includes(wantedSearchTerm.toLowerCase())) ||
+                         ((w.description || '').toLowerCase().includes(wantedSearchTerm.toLowerCase()));
     const matchesStatus = wantedFilter === 'ALL' || w.status === wantedFilter;
     return matchesSearch && matchesStatus;
   });
 
   const filteredBugs = bugs.filter(b => {
-    const matchesSearch = (b.title?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false) || 
-                         (b.description?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false) ||
-                         (b.reporter_name?.toLowerCase().includes(bugsSearchTerm.toLowerCase()) || false);
+    const matchesSearch = ((b.title || '').toLowerCase().includes(bugsSearchTerm.toLowerCase())) || 
+                         ((b.description || '').toLowerCase().includes(bugsSearchTerm.toLowerCase())) ||
+                         ((b.reporter_name || '').toLowerCase().includes(bugsSearchTerm.toLowerCase()));
     const matchesStatus = bugsFilter === 'ALL' || b.status === bugsFilter;
     const matchesType = b.type === (feedbackTab === 'BUGS' ? 'BUG' : 'SUGGESTION');
     return matchesSearch && matchesStatus && matchesType;
@@ -1985,29 +1986,34 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {Array.isArray(p.proof_url) && p.proof_url.length > 0 && (
-                                  <div className="flex items-center gap-1.5">
-                                    {p.proof_url.map((url, idx) => {
-                                      let Icon = FileText;
-                                      if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
-                                      else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
-                                      
-                                      return (
-                                        <a 
-                                          key={idx}
-                                          href={url} 
-                                          target="_blank" 
-                                          rel="noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
-                                          title={`Důkaz ${idx + 1}`}
-                                        >
-                                          <Icon className="w-3.5 h-3.5" />
-                                        </a>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                {(() => {
+                                  const proofUrls = Array.isArray(p.proof_url) ? p.proof_url : (typeof p.proof_url === 'string' && p.proof_url ? [p.proof_url] : []);
+                                  if (proofUrls.length === 0) return null;
+                                  
+                                  return (
+                                    <div className="flex items-center gap-1.5">
+                                      {proofUrls.map((url, idx) => {
+                                        let Icon = FileText;
+                                        if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
+                                        else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
+                                        
+                                        return (
+                                          <a 
+                                            key={idx}
+                                            href={url} 
+                                            target="_blank" 
+                                            rel="noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
+                                            title={`Důkaz ${idx + 1}`}
+                                          >
+                                            <Icon className="w-3.5 h-3.5" />
+                                          </a>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -2553,29 +2559,34 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {Array.isArray(p.proof_url) && p.proof_url.length > 0 && (
-                                  <div className="flex items-center gap-1.5">
-                                    {p.proof_url.map((url, idx) => {
-                                      let Icon = FileText;
-                                      if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
-                                      else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
-                                      
-                                      return (
-                                        <a 
-                                          key={idx}
-                                          href={url} 
-                                          target="_blank" 
-                                          rel="noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
-                                          title={`Důkaz ${idx + 1}`}
-                                        >
-                                          <Icon className="w-3.5 h-3.5" />
-                                        </a>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                {(() => {
+                                  const proofUrls = Array.isArray(p.proof_url) ? p.proof_url : (typeof p.proof_url === 'string' && p.proof_url ? [p.proof_url] : []);
+                                  if (proofUrls.length === 0) return null;
+                                  
+                                  return (
+                                    <div className="flex items-center gap-1.5">
+                                      {proofUrls.map((url, idx) => {
+                                        let Icon = FileText;
+                                        if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
+                                        else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
+                                        
+                                        return (
+                                          <a 
+                                            key={idx}
+                                            href={url} 
+                                            target="_blank" 
+                                            rel="noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
+                                            title={`Důkaz ${idx + 1}`}
+                                          >
+                                            <Icon className="w-3.5 h-3.5" />
+                                          </a>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -3387,23 +3398,28 @@ export default function App() {
                 </div>
               </div>
 
-              {Array.isArray(viewingPunishment.proof_url) && viewingPunishment.proof_url.length > 0 && (
-                <div className="pt-4 space-y-2">
-                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Důkazy</label>
-                  {viewingPunishment.proof_url.map((url, idx) => (
-                    <a 
-                      key={idx}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
-                    >
-                      <ExternalLink className="w-4 h-4" /> 
-                      {viewingPunishment.proof_url.length === 1 ? 'Zobrazit Důkaz' : `Zobrazit Důkaz ${idx + 1}`}
-                    </a>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const proofUrls = Array.isArray(viewingPunishment.proof_url) ? viewingPunishment.proof_url : (typeof viewingPunishment.proof_url === 'string' && viewingPunishment.proof_url ? [viewingPunishment.proof_url] : []);
+                if (proofUrls.length === 0) return null;
+                
+                return (
+                  <div className="pt-4 space-y-2">
+                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Důkazy</label>
+                    {proofUrls.map((url, idx) => (
+                      <a 
+                        key={idx}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
+                      >
+                        <ExternalLink className="w-4 h-4" /> 
+                        {proofUrls.length === 1 ? 'Zobrazit Důkaz' : `Zobrazit Důkaz ${idx + 1}`}
+                      </a>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             
             <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end">
