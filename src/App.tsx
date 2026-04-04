@@ -42,7 +42,9 @@ import {
   Archive,
   User,
   Lock,
-  Copy
+  Copy,
+  Image,
+  Video
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason, SuggestionComment } from './lib/supabase';
@@ -135,7 +137,7 @@ export default function App() {
     type: 'WARN' as PunishmentType,
     reason: PUNISHMENT_REASONS[0],
     details: '',
-    evidence_url: '',
+    proof_urls: [''],
     expires_at: '' as string | null,
 
     // Wanted
@@ -555,9 +557,9 @@ export default function App() {
                     <span className="text-xs font-bold text-white">{m.global_name || m.username}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-zinc-500">@{m.username} • {m.id}</span>
-                      {punishments.filter(p => p.player_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length > 0 && (
+                      {punishments.filter(p => p.player_discord_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length > 0 && (
                         <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-1 rounded font-bold">
-                          {punishments.filter(p => p.player_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length} WARNS
+                          {punishments.filter(p => p.player_discord_id === m.id && p.type === 'WARN' && !isExpired(p.expiry_date)).length} WARNS
                         </span>
                       )}
                     </div>
@@ -790,11 +792,12 @@ export default function App() {
 
           table = 'punishments';
           payload = {
-            player_id: formData.discord_id,
+            player_discord_id: formData.discord_id,
+            player_name: formData.discord_username,
             type: formData.type,
             reason: formData.reason,
             details: formData.details,
-            proof_url: formData.evidence_url,
+            proof_url: formData.proof_urls.filter(url => url.trim() !== ''),
             expiry_date: formData.expires_at ? new Date(formData.expires_at).toISOString() : null,
             admin_name: adminName,
           };
@@ -932,7 +935,7 @@ export default function App() {
                   { name: '\u200B', value: '\u200B', inline: true },
                   { name: '📋 Důvod', value: formData.reason || 'Nezadán', inline: false },
                   { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
-                  { name: '🔗 Důkaz', value: formData.evidence_url ? `[Klikni sem pro důkaz](${formData.evidence_url})` : '*Bez důkazu*', inline: true },
+                  { name: '🔗 Důkaz', value: formData.proof_urls.filter(url => url.trim() !== '').length > 0 ? formData.proof_urls.filter(url => url.trim() !== '').map((url, i) => `[Důkaz ${i+1}](${url})`).join(', ') : '*Bez důkazu*', inline: true },
                   { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
                 ],
                 footer: {
@@ -967,7 +970,7 @@ export default function App() {
       type: 'WARN',
       reason: punishmentReasons.length > 0 ? punishmentReasons[0].label : PUNISHMENT_REASONS[0],
       details: '',
-      evidence_url: '',
+      proof_urls: [''],
       expires_at: '',
       description: '',
       danger_level: 'LOW',
@@ -994,14 +997,14 @@ export default function App() {
     if (activeSection === 'PLAYERS') {
       if (playersTab === 'BANLIST') {
         table = 'punishments';
-        name = punishments.find(p => p.id === id)?.player_id || 'Trest';
+        name = punishments.find(p => p.id === id)?.player_name || 'Trest';
       } else {
         table = 'wanted';
         name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted';
       }
     } else {
       switch(activeSection) {
-        case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.player_id || 'Trest'; break;
+        case 'BANLIST': table = 'punishments'; name = punishments.find(p => p.id === id)?.player_name || 'Trest'; break;
         case 'WANTED': table = 'wanted'; name = wantedList.find(w => w.id === id)?.discord_username || 'Wanted'; break;
         case 'FEEDBACK': 
           table = 'bugs'; 
@@ -1045,9 +1048,9 @@ export default function App() {
     const diffDays = Math.floor(diffHours / 24);
     
     if (diffDays > 0) {
-      return `za ${diffDays} d${diffDays === 1 ? 'en' : (diffDays < 5 ? 'ni' : 'ní')}`;
+      return `(zostáva ${diffDays} d${diffDays === 1 ? 'eň' : (diffDays > 1 && diffDays < 5 ? 'ni' : 'ní')})`;
     } else {
-      return `za ${diffHours} hodin${diffHours === 1 ? 'u' : (diffHours > 1 && diffHours < 5 ? 'y' : '')}`;
+      return `(zostáva ${diffHours} hod${diffHours === 1 ? 'ina' : (diffHours > 1 && diffHours < 5 ? 'iny' : 'ín')})`;
     }
   };
 
@@ -1078,12 +1081,12 @@ export default function App() {
       setPlayersTab('BANLIST');
       setFormData({
         ...formData,
-        discord_id: item.player_id || '',
-        discord_username: item.player_id || '',
+        discord_id: item.player_discord_id || '',
+        discord_username: item.player_name || '',
         type: item.type,
         reason: item.reason,
         details: item.details,
-        evidence_url: item.proof_url,
+        proof_urls: Array.isArray(item.proof_url) && item.proof_url.length > 0 ? item.proof_url : [''],
         expires_at: item.expiry_date ? new Date(item.expiry_date).toISOString().slice(0, 16) : '',
       });
     } else if (activeSection === 'FEEDBACK' || (item.type === 'BUG' || item.type === 'SUGGESTION')) {
@@ -1127,7 +1130,8 @@ export default function App() {
   };
 
   const filteredPunishments = punishments.filter(p => {
-    const matchesSearch = (p.player_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+    const matchesSearch = (p.player_discord_id?.toLowerCase().includes(searchTerm.toLowerCase()) || false) || 
+                          (p.player_name?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
     const matchesType = typeFilter === 'ALL' || p.type === typeFilter;
     return matchesSearch && matchesType;
   });
@@ -1170,7 +1174,7 @@ export default function App() {
   };
 
   const activeWarns = formData.discord_id ? punishments.filter(p => 
-    p.player_id === formData.discord_id && 
+    p.player_discord_id === formData.discord_id && 
     p.type === 'WARN'
   ).length : 0;
 
@@ -1890,19 +1894,33 @@ export default function App() {
                         
                         return (
                           <div key={p.id} className="relative pl-6 group">
-                            <div className={cn(
-                              "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
-                              p.type === 'BAN' ? "bg-red-500" :
-                              p.type === 'WARN' ? "bg-orange-500" :
-                              p.type === 'KICK' ? "bg-yellow-500" : "bg-blue-500"
-                            )} />
-                            <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors relative">
+                            <div 
+                              className={cn(
+                                "bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 transition-all relative cursor-pointer group/card",
+                                p.type === 'BAN' ? "border-l-4 border-l-red-600 bg-red-600/5 hover:bg-red-600/10" :
+                                p.type === 'WARN' ? "border-l-4 border-l-orange-500 bg-orange-500/5 hover:bg-orange-500/10" :
+                                p.type === 'SUSPEND' ? "border-l-4 border-l-purple-500 bg-purple-500/5 hover:bg-purple-500/10" :
+                                p.type === 'WL-DOWN' ? "border-l-4 border-l-blue-500 bg-blue-500/5 hover:bg-blue-500/10" :
+                                "border-l-4 border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
+                              )}
+                              onClick={() => {
+                                setEditingItem(p);
+                                setFormData({
+                                  ...formData,
+                                  discord_id: p.player_discord_id || '',
+                                  discord_username: p.player_name || '',
+                                  type: p.type,
+                                  reason: p.reason,
+                                  details: p.details,
+                                  proof_urls: Array.isArray(p.proof_url) && p.proof_url.length > 0 ? p.proof_url : [''],
+                                  expires_at: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 16) : '',
+                                });
+                                setIsModalOpen(true);
+                              }}
+                            >
                               {isAdmin && (
-                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={(e) => { e.stopPropagation(); handleEdit(p); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
+                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                                  <button onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors border border-zinc-800">
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
@@ -1920,19 +1938,19 @@ export default function App() {
                                   {format(parseISO(p.created_at), 'dd.MM.yyyy HH:mm')}
                                 </span>
                                 <div 
-                                  className="font-bold text-sm text-zinc-100 hover:text-blue-400 cursor-pointer transition-colors flex items-center gap-2"
+                                  className="font-bold text-sm text-zinc-100 hover:text-blue-400 transition-colors flex items-center gap-2"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setSelectedPlayerHistory({ discord_id: p.player_id, discord_username: p.player_id || 'Neznámý' });
+                                    setSelectedPlayerHistory({ discord_id: p.player_discord_id, discord_username: p.player_name || 'Neznámý' });
                                   }}
                                 >
                                   <User className="w-4 h-4 text-zinc-500" />
-                                  {p.player_id || 'Neznámý'}
+                                  {p.player_name || 'Neznámý'}
                                   <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
-                                    ({p.player_id || 'Neznámé'})
-                                    {p.player_id && (
+                                    ({p.player_discord_id || 'Neznámé'})
+                                    {p.player_discord_id && (
                                       <button 
-                                        onClick={(e) => handleCopyId(e, p.player_id!)}
+                                        onClick={(e) => handleCopyId(e, p.player_discord_id!)}
                                         className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
                                         title="Kopírovat Discord ID"
                                       >
@@ -1959,7 +1977,7 @@ export default function App() {
                                       "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
                                       expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
                                     )}>
-                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} - ${formatExpiration(p.expiry_date)}`}
+                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} ${formatExpiration(p.expiry_date)}`}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
@@ -1967,15 +1985,28 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {p.proof_url && (
-                                  <a 
-                                    href={p.proof_url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20"
-                                  >
-                                    <ExternalLink className="w-3 h-3" /> Zobrazit důkaz
-                                  </a>
+                                {Array.isArray(p.proof_url) && p.proof_url.length > 0 && (
+                                  <div className="flex items-center gap-1.5">
+                                    {p.proof_url.map((url, idx) => {
+                                      let Icon = FileText;
+                                      if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
+                                      else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
+                                      
+                                      return (
+                                        <a 
+                                          key={idx}
+                                          href={url} 
+                                          target="_blank" 
+                                          rel="noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
+                                          title={`Důkaz ${idx + 1}`}
+                                        >
+                                          <Icon className="w-3.5 h-3.5" />
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2463,24 +2494,27 @@ export default function App() {
             </div>
             <div className="p-6 overflow-y-auto custom-scrollbar">
               <div className="space-y-4">
-                {punishments.filter(p => p.player_id === selectedPlayerHistory.discord_id).length === 0 ? (
+                {punishments.filter(p => p.player_discord_id === selectedPlayerHistory.discord_id).length === 0 ? (
                   <div className="text-center py-12 text-zinc-500">Hráč nemá žádné záznamy o trestech.</div>
                 ) : (
                   <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
                     {punishments
-                      .filter(p => p.player_id === selectedPlayerHistory.discord_id)
+                      .filter(p => p.player_discord_id === selectedPlayerHistory.discord_id)
                       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                       .map((p, idx) => {
                         const expired = isExpired(p.expiry_date);
                         return (
                           <div key={p.id} className="relative pl-6">
-                            <div className={cn(
-                              "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
-                              p.type === 'BAN' ? "bg-red-500" :
-                              p.type === 'WARN' ? "bg-orange-500" :
-                              p.type === 'KICK' ? "bg-yellow-500" : "bg-blue-500"
-                            )} />
-                            <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors">
+                            <div 
+                              className={cn(
+                                "bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 transition-all",
+                                p.type === 'BAN' ? "border-l-4 border-l-red-600 bg-red-600/5" :
+                                p.type === 'WARN' ? "border-l-4 border-l-orange-500 bg-orange-500/5" :
+                                p.type === 'SUSPEND' ? "border-l-4 border-l-purple-500 bg-purple-500/5" :
+                                p.type === 'WL-DOWN' ? "border-l-4 border-l-blue-500 bg-blue-500/5" :
+                                "border-l-4 border-l-zinc-500 bg-zinc-500/5"
+                              )}
+                            >
                               <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
                                 <div className="flex items-center gap-2">
                                   <span className={cn(
@@ -2511,7 +2545,7 @@ export default function App() {
                                       "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
                                       expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
                                     )}>
-                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} - ${formatExpiration(p.expiry_date)}`}
+                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} ${formatExpiration(p.expiry_date)}`}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
@@ -2519,15 +2553,28 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                {p.proof_url && (
-                                  <a 
-                                    href={p.proof_url} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-                                  >
-                                    <ExternalLink className="w-3 h-3" /> Zobrazit důkaz
-                                  </a>
+                                {Array.isArray(p.proof_url) && p.proof_url.length > 0 && (
+                                  <div className="flex items-center gap-1.5">
+                                    {p.proof_url.map((url, idx) => {
+                                      let Icon = FileText;
+                                      if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
+                                      else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
+                                      
+                                      return (
+                                        <a 
+                                          key={idx}
+                                          href={url} 
+                                          target="_blank" 
+                                          rel="noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
+                                          title={`Důkaz ${idx + 1}`}
+                                        >
+                                          <Icon className="w-3.5 h-3.5" />
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2666,7 +2713,15 @@ export default function App() {
                               : "border-zinc-800 focus:ring-red-500/50"
                           )}
                           value={formData.discord_id}
-                          onChange={e => setFormData({...formData, discord_id: e.target.value})}
+                          onChange={e => {
+                            const newId = e.target.value;
+                            const member = discordMembers.find(m => m.id === newId);
+                            setFormData({
+                              ...formData, 
+                              discord_id: newId, 
+                              ...(member ? { discord_username: member.username } : {})
+                            });
+                          }}
                           placeholder="např. 1234567890"
                         />
                       </div>
@@ -2770,14 +2825,45 @@ export default function App() {
                       </div>
                       
                       <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Link na důkaz (Imgur/YouTube/Medal)</label>
-                        <input 
-                          type="url" 
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
-                          value={formData.evidence_url}
-                          onChange={e => setFormData({...formData, evidence_url: e.target.value})}
-                          placeholder="https://..."
-                        />
+                        <div className="flex items-center justify-between mb-1.5 ml-1">
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Linky na důkazy (Imgur/YouTube/Medal)</label>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, proof_urls: [...formData.proof_urls, ''] })}
+                            className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded transition-colors flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" /> Přidat důkaz
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {formData.proof_urls.map((url, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <input 
+                                type="url" 
+                                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                                value={url}
+                                onChange={e => {
+                                  const newUrls = [...formData.proof_urls];
+                                  newUrls[idx] = e.target.value;
+                                  setFormData({...formData, proof_urls: newUrls});
+                                }}
+                                placeholder="https://..."
+                              />
+                              {formData.proof_urls.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newUrls = formData.proof_urls.filter((_, i) => i !== idx);
+                                    setFormData({...formData, proof_urls: newUrls});
+                                  }}
+                                  className="p-2.5 bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-500 rounded-xl transition-colors border border-zinc-800"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3250,8 +3336,8 @@ export default function App() {
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Hráč</label>
-                  <p className="text-lg font-bold text-zinc-100">{viewingPunishment.player_id || 'Neznámý'}</p>
-                  <p className="text-xs text-zinc-500 font-mono">{viewingPunishment.player_id || 'Neznámé ID'}</p>
+                  <p className="text-lg font-bold text-zinc-100">{viewingPunishment.player_name || 'Neznámý'}</p>
+                  <p className="text-xs text-zinc-500 font-mono">{viewingPunishment.player_discord_id || 'Neznámé ID'}</p>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Typ Trestu</label>
@@ -3301,16 +3387,21 @@ export default function App() {
                 </div>
               </div>
 
-              {viewingPunishment.proof_url && (
-                <div className="pt-4">
-                  <a 
-                    href={viewingPunishment.proof_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
-                  >
-                    <ExternalLink className="w-4 h-4" /> Zobrazit Důkaz
-                  </a>
+              {Array.isArray(viewingPunishment.proof_url) && viewingPunishment.proof_url.length > 0 && (
+                <div className="pt-4 space-y-2">
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Důkazy</label>
+                  {viewingPunishment.proof_url.map((url, idx) => (
+                    <a 
+                      key={idx}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700"
+                    >
+                      <ExternalLink className="w-4 h-4" /> 
+                      {viewingPunishment.proof_url.length === 1 ? 'Zobrazit Důkaz' : `Zobrazit Důkaz ${idx + 1}`}
+                    </a>
+                  ))}
                 </div>
               )}
             </div>
