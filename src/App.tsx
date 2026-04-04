@@ -791,10 +791,22 @@ export default function App() {
             }
           }
 
+          // Discord Name Resolver Fallback
+          let finalPlayerName = formData.discord_username;
+          if (!finalPlayerName && formData.discord_id) {
+             const member = discordMembers.find(m => m.id === formData.discord_id);
+             if (member) {
+               finalPlayerName = member.username;
+             } else {
+               // Fallback to Discord ID if name cannot be resolved
+               finalPlayerName = formData.discord_id;
+             }
+          }
+
           table = 'punishments';
           payload = {
             player_discord_id: formData.discord_id,
-            player_name: formData.discord_username,
+            player_name: finalPlayerName,
             type: formData.type,
             reason: formData.reason,
             details: formData.details,
@@ -1030,8 +1042,10 @@ export default function App() {
     }
 
     const { error } = await supabase.from(table).delete().eq('id', id);
-    if (error) alert('Chyba: ' + error.message);
-    else {
+    if (error) {
+      console.error('Error deleting record:', error);
+      alert('Chyba při mazání: ' + error.message);
+    } else {
       logAction(`Smazán ${activeSection}`, name, `ID: ${id}`);
       fetchData();
     }
