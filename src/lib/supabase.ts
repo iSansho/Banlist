@@ -47,15 +47,42 @@ export interface Bug {
   type: 'BUG' | 'SUGGESTION';
 }
 
-export interface Meeting {
+export interface AgendaItem {
   id: string;
   created_at: string;
   title: string;
   description: string;
-  category: 'BUG' | 'SUGGESTION' | 'COMPLAINT';
+  category: 'BUG' | 'SUGGESTION' | 'COMPLAINT' | 'OTHER';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   status: 'INBOX' | 'AGENDA' | 'RESOLVED' | 'ARCHIVED';
   organizer_name: string; // Author
+  media_urls?: string[];
+}
+
+export interface SystemSetting {
+  key: string;
+  value: string;
+}
+
+export interface AgendaRead {
+  agenda_id: string;
+  admin_id: string;
+  admin_name: string;
+  created_at: string;
+}
+
+export interface AgendaComment {
+  id: string;
+  agenda_id: string;
+  author_name: string;
+  content: string;
+  created_at: string;
+}
+
+export interface AgendaVote {
+  agenda_id: string;
+  admin_id: string;
+  vote: 'UP' | 'DOWN';
 }
 
 export interface Log {

@@ -47,7 +47,7 @@ import {
   Video
 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, Meeting, Log, Admin, PunishmentReason, SuggestionComment } from './lib/supabase';
+import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, AgendaItem, Log, Admin, PunishmentReason, SuggestionComment, SystemSetting, AgendaRead, AgendaComment, AgendaVote } from './lib/supabase';
 
 // Utility pro sanitizaci HTML proti XSS
 const escapeHtml = (unsafe: string | null | undefined) => {
@@ -88,10 +88,10 @@ export default function App() {
   useEffect(() => {
     isVerifiedRef.current = isVerified;
   }, [isVerified]);
-  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'MEETINGS' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
+  const [activeSection, setActiveSection] = useState<'DASHBOARD' | 'PLAYERS' | 'FEEDBACK' | 'AGENDA' | 'LOGS' | 'SETTINGS'>('DASHBOARD');
   const [playersTab, setPlayersTab] = useState<'BANLIST' | 'WATCHLIST'>('BANLIST');
   const [feedbackTab, setFeedbackTab] = useState<'BUGS' | 'SUGGESTIONS'>('BUGS');
-  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS' | 'ACCOUNT'>('LOGS');
+  const [settingsTab, setSettingsTab] = useState<'LOGS' | 'ADMINS' | 'REASONS' | 'SYSTEM' | 'ACCOUNT'>('LOGS');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -103,7 +103,14 @@ export default function App() {
   const [bugs, setBugs] = useState<Bug[]>([]);
   const [suggestionComments, setSuggestionComments] = useState<SuggestionComment[]>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState<Bug | null>(null);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
+  const [systemSettings, setSystemSettings] = useState<SystemSetting[]>([]);
+  const [agendaReads, setAgendaReads] = useState<AgendaRead[]>([]);
+  const [agendaComments, setAgendaComments] = useState<AgendaComment[]>([]);
+  const [agendaVotes, setAgendaVotes] = useState<AgendaVote[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
+  const [viewingAgendaItem, setViewingAgendaItem] = useState<AgendaItem | null>(null);
+  const [newAgendaComment, setNewAgendaComment] = useState('');
   const [logs, setLogs] = useState<Log[]>([]);
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [punishmentReasons, setPunishmentReasons] = useState<PunishmentReason[]>([]);
@@ -115,7 +122,7 @@ export default function App() {
   const [wantedSearchTerm, setWantedSearchTerm] = useState('');
   const [bugsSearchTerm, setBugsSearchTerm] = useState('');
   const [logsSearchTerm, setLogsSearchTerm] = useState('');
-  const [meetingsSearchTerm, setMeetingsSearchTerm] = useState('');
+  const [agendaSearchTerm, setAgendaSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [wantedFilter, setWantedFilter] = useState<string>('ALL');
   const [bugsFilter, setBugsFilter] = useState<string>('ALL');
@@ -152,9 +159,11 @@ export default function App() {
     bug_status: 'OPEN' as any,
     feedback_type: 'BUG' as 'BUG' | 'SUGGESTION',
 
-    // Meeting
-    category: 'BUG' as 'BUG' | 'SUGGESTION' | 'COMPLAINT',
+    // Agenda
+    category: 'BUG' as 'BUG' | 'SUGGESTION' | 'COMPLAINT' | 'OTHER',
     meeting_status: 'INBOX' as 'INBOX' | 'AGENDA' | 'RESOLVED' | 'ARCHIVED',
+    ping_roles: [] as string[],
+    agenda_media_urls: [''],
     
     // Admin
     rank: 3,
@@ -418,7 +427,11 @@ export default function App() {
         fetchPunishments(),
         fetchWanted(),
         fetchBugs(),
-        fetchMeetings(),
+        fetchAgendaItems(),
+        fetchSystemSettings(),
+        fetchAgendaReads(),
+        fetchAgendaComments(),
+        fetchAgendaVotes(),
         fetchLogs(),
         fetchAdmins()
       ]);
@@ -462,9 +475,29 @@ export default function App() {
     setBugs(data || []);
   };
 
-  const fetchMeetings = async () => {
+  const fetchAgendaItems = async () => {
     const { data } = await supabase.from('meetings').select('*').order('created_at', { ascending: false });
-    setMeetings(data || []);
+    setAgendaItems(data || []);
+  };
+
+  const fetchSystemSettings = async () => {
+    const { data } = await supabase.from('system_settings').select('*');
+    setSystemSettings(data || []);
+  };
+
+  const fetchAgendaReads = async () => {
+    const { data } = await supabase.from('agenda_reads').select('*');
+    setAgendaReads(data || []);
+  };
+
+  const fetchAgendaComments = async () => {
+    const { data } = await supabase.from('agenda_comments').select('*').order('created_at', { ascending: true });
+    setAgendaComments(data || []);
+  };
+
+  const fetchAgendaVotes = async () => {
+    const { data } = await supabase.from('agenda_votes').select('*');
+    setAgendaVotes(data || []);
   };
 
   const fetchLogs = async () => {
@@ -673,16 +706,36 @@ export default function App() {
     e.preventDefault();
   };
 
+  const handleViewAgendaItem = async (item: AgendaItem) => {
+    setViewingAgendaItem(item);
+    if (user) {
+      const adminId = user.id;
+      const adminName = user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Admin';
+      
+      const alreadyRead = agendaReads.some(r => r.agenda_id === item.id && r.admin_id === adminId);
+      if (!alreadyRead) {
+        const { error } = await supabase.from('agenda_reads').insert({
+          agenda_id: item.id,
+          admin_id: adminId,
+          admin_name: adminName
+        });
+        if (!error) {
+          fetchAgendaReads();
+        }
+      }
+    }
+  };
+
   const handleDrop = async (e: React.DragEvent, newStatus: 'INBOX' | 'AGENDA' | 'RESOLVED') => {
     e.preventDefault();
     const id = e.dataTransfer.getData('meetingId');
     if (!id) return;
 
-    const meeting = meetings.find(m => m.id === id);
-    if (!meeting || meeting.status === newStatus) return;
+    const agendaItem = agendaItems.find(m => m.id === id);
+    if (!agendaItem || agendaItem.status === newStatus) return;
 
     // Optimistic update
-    setMeetings(meetings.map(m => m.id === id ? { ...m, status: newStatus } : m));
+    setAgendaItems(agendaItems.map(m => m.id === id ? { ...m, status: newStatus } : m));
 
     const { error } = await supabase
       .from('meetings')
@@ -693,26 +746,26 @@ export default function App() {
       toast.error('Chyba při přesunu: ' + error.message);
       fetchData(); // Revert
     } else {
-      logAction('Přesun Meetingu', meeting.title, `Nový status: ${newStatus}`);
+      logAction('Přesun Agendy', agendaItem.title, `Nový status: ${newStatus}`);
     }
   };
 
   const archiveResolved = async () => {
     if (!confirm('Opravdu chcete archivovat všechny vyřešené podněty?')) return;
 
-    const resolvedMeetings = meetings.filter(m => m.status === 'RESOLVED');
-    if (resolvedMeetings.length === 0) return;
+    const resolvedItems = agendaItems.filter(m => m.status === 'RESOLVED');
+    if (resolvedItems.length === 0) return;
 
     const { error } = await supabase
       .from('meetings')
       .update({ status: 'ARCHIVED' })
-      .in('id', resolvedMeetings.map(m => m.id));
+      .in('id', resolvedItems.map(m => m.id));
 
     if (error) {
       toast.error('Chyba při archivaci: ' + error.message);
     } else {
       toast.success('Podněty byly archivovány.');
-      logAction('Archivace Meetings', 'Hromadná akce', `${resolvedMeetings.length} podnětů`);
+      logAction('Archivace Agendy', 'Hromadná akce', `${resolvedItems.length} podnětů`);
       fetchData();
     }
   };
@@ -760,7 +813,7 @@ export default function App() {
       case 'FEEDBACK':
         if (!formData.title || !formData.description) isValid = false;
         break;
-      case 'MEETINGS':
+      case 'AGENDA':
         if (!formData.title || !formData.category || !formData.priority) isValid = false;
         break;
     }
@@ -876,7 +929,7 @@ export default function App() {
         logMsg = `Type: ${payload.type}, Priority: ${formData.priority}, Status: ${formData.bug_status}`;
         targetName = formData.title;
         break;
-      case 'MEETINGS':
+      case 'AGENDA':
         table = 'meetings';
         payload = {
           title: formData.title,
@@ -885,6 +938,7 @@ export default function App() {
           priority: formData.priority,
           status: formData.meeting_status,
           organizer_name: adminName,
+          media_urls: formData.agenda_media_urls.filter(url => url.trim() !== ''),
         };
         logMsg = `Kategorie: ${formData.category}, Priorita: ${formData.priority}`;
         targetName = formData.title;
@@ -922,7 +976,7 @@ export default function App() {
       await fetchPunishmentReasons();
     }
 
-    // Send Webhook for Banlist only for now
+    // Send Webhook for Banlist
     if (activeSection === 'PLAYERS' && playersTab === 'BANLIST') {
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -963,6 +1017,42 @@ export default function App() {
         }
       }
 
+      // Send Webhook for Agenda
+      if (activeSection === 'AGENDA' && !editingItem) {
+        try {
+          const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
+          if (webhookUrl) {
+            const embedColor = formData.priority === 'HIGH' ? 15158332 : (formData.priority === 'MEDIUM' ? 16776960 : 3447003);
+            const pingContent = (formData.ping_roles || []).map(id => `<@&${id}>`).join(' ');
+            
+            await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: pingContent ? `🔔 Nový podnět v Agendě! ${pingContent}` : `🔔 Nový podnět v Agendě!`,
+                embeds: [{
+                  title: `📋 ${formData.title}`,
+                  description: formData.description,
+                  color: embedColor,
+                  url: window.location.origin,
+                  fields: [
+                    { name: 'Kategorie', value: formData.category, inline: true },
+                    { name: 'Priorita', value: formData.priority, inline: true },
+                    { name: 'Autor', value: adminName, inline: true }
+                  ],
+                  footer: {
+                    text: 'Admin Panel | Agenda'
+                  },
+                  timestamp: new Date().toISOString()
+                }]
+              })
+            });
+          }
+        } catch (e) {
+          console.error('Agenda Webhook failed', e);
+        }
+      }
+
       toast.success('Záznam byl úspěšně uložen!');
       setIsModalOpen(false);
       setEditingItem(null);
@@ -994,6 +1084,8 @@ export default function App() {
       bug_status: 'OPEN',
       category: 'BUG',
       meeting_status: 'INBOX',
+      ping_roles: [],
+      agenda_media_urls: [''],
       feedback_type: 'BUG',
       rank: 3,
       email: '',
@@ -1023,7 +1115,7 @@ export default function App() {
           table = 'bugs'; 
           name = bugs.find(b => b.id === id)?.title || 'Záznam'; 
           break;
-        case 'MEETINGS': table = 'meetings'; name = meetings.find(m => m.id === id)?.title || 'Meeting'; break;
+        case 'AGENDA': table = 'meetings'; name = agendaItems.find(m => m.id === id)?.title || 'Agenda'; break;
         case 'SETTINGS':
           if (settingsTab === 'ADMINS') {
             table = 'admins';
@@ -1117,7 +1209,7 @@ export default function App() {
         setSelectedSuggestion(item);
         fetchSuggestionComments(item.id);
       }
-    } else if (activeSection === 'MEETINGS' || item.category) {
+    } else if (activeSection === 'AGENDA' || item.category) {
       setFormData({
         ...formData,
         title: item.title,
@@ -1125,6 +1217,7 @@ export default function App() {
         category: item.category || 'BUG',
         priority: item.priority || 'LOW',
         meeting_status: item.status || 'INBOX',
+        agenda_media_urls: Array.isArray(item.media_urls) && item.media_urls.length > 0 ? item.media_urls : [''],
       });
     } else if (activeSection === 'SETTINGS') {
       if (settingsTab === 'ADMINS') {
@@ -1176,10 +1269,10 @@ export default function App() {
     return matchesSearch;
   });
 
-  const filteredMeetings = meetings.filter(m => {
-    const matchesSearch = (m.title?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) || 
-                         (m.description?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false) ||
-                         (m.organizer_name?.toLowerCase().includes(meetingsSearchTerm.toLowerCase()) || false);
+  const filteredAgendaItems = agendaItems.filter(m => {
+    const matchesSearch = (m.title?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false) || 
+                         (m.description?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false) ||
+                         (m.organizer_name?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false);
     return matchesSearch;
   });
 
@@ -1415,7 +1508,7 @@ export default function App() {
                 <div>
                   <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Podnety na poradu</p>
                   <p className="text-3xl font-black text-white">
-                    {meetings.filter(m => m.status === 'INBOX' || m.status === 'AGENDA').length}
+                    {agendaItems.filter(m => m.status === 'INBOX' || m.status === 'AGENDA').length}
                   </p>
                 </div>
               </div>
@@ -1489,10 +1582,10 @@ export default function App() {
                 </div>
               )}
 
-              {/* Meetings Card */}
+              {/* Agenda Card */}
               {userRank <= 3 && (
                 <button 
-                  onClick={() => setActiveSection('MEETINGS')}
+                  onClick={() => setActiveSection('AGENDA')}
                   className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl hover:border-purple-600/50 transition-all text-left shadow-2xl"
                 >
                   <div className="flex items-start justify-between mb-4">
@@ -1501,7 +1594,7 @@ export default function App() {
                     </div>
                     <ChevronRight className="w-5 h-5 text-zinc-600 group-hover:text-white transition-all" />
                   </div>
-                  <h3 className="text-xl font-bold">Meetings</h3>
+                  <h3 className="text-xl font-bold">Agenda</h3>
                   <p className="text-zinc-500 text-sm mt-2">Plánované porady, zápisy a důležité výstupy.</p>
                 </button>
               )}
@@ -1565,6 +1658,15 @@ export default function App() {
                 )}
               >
                 Důvody Trestů
+              </button>
+              <button 
+                onClick={() => setSettingsTab('SYSTEM')}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  settingsTab === 'SYSTEM' ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Systém
               </button>
               <button 
                 onClick={() => setSettingsTab('ACCOUNT')}
@@ -1748,6 +1850,69 @@ export default function App() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            ) : settingsTab === 'SYSTEM' ? (
+              <div className="space-y-6">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-indigo-500" /> Discord Webhook (Agenda)
+                  </h3>
+                  <p className="text-xs text-zinc-500 mb-6">Nastavte Discord Webhook URL pro automatické odesílání notifikací při vytvoření nového podnětu v Agendě.</p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Webhook URL</label>
+                      <input 
+                        type="text" 
+                        value={systemSettings.find(s => s.key === 'agenda_webhook')?.value || ''}
+                        onChange={async (e) => {
+                          const val = e.target.value;
+                          setSystemSettings(prev => {
+                            const existing = prev.find(s => s.key === 'agenda_webhook');
+                            if (existing) return prev.map(s => s.key === 'agenda_webhook' ? { ...s, value: val } : s);
+                            return [...prev, { key: 'agenda_webhook', value: val }];
+                          });
+                          await supabase.from('system_settings').upsert({ key: 'agenda_webhook', value: val });
+                        }}
+                        placeholder="https://discord.com/api/webhooks/..."
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all font-mono"
+                      />
+                    </div>
+                    <button 
+                      onClick={async () => {
+                        const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
+                        if (!webhookUrl) {
+                          toast.error('Webhook URL není nastavena.');
+                          return;
+                        }
+                        try {
+                          const res = await fetch(webhookUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              content: "🔔 **Testovací zpráva z Admin Panelu**",
+                              embeds: [{
+                                title: "Webhook je správně nastaven!",
+                                description: "Notifikace pro Agendu budou chodit do tohoto kanálu.",
+                                color: 5814783
+                              }]
+                            })
+                          });
+                          if (res.ok) {
+                            toast.success('Testovací zpráva byla odeslána.');
+                          } else {
+                            toast.error('Chyba při odesílání zprávy.');
+                          }
+                        } catch (e) {
+                          toast.error('Chyba při odesílání zprávy.');
+                        }
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                    >
+                      Testovat Webhook
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2288,7 +2453,7 @@ export default function App() {
               </div>
             </div>
           </div>
-        ) : activeSection === 'MEETINGS' ? (
+        ) : activeSection === 'AGENDA' ? (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
               <div className="flex items-center gap-4 w-full md:w-auto">
@@ -2308,8 +2473,8 @@ export default function App() {
                     type="text" 
                     placeholder="Hledat podnět..." 
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:ring-1 focus:ring-purple-500 outline-none transition-all"
-                    value={meetingsSearchTerm}
-                    onChange={(e) => setMeetingsSearchTerm(e.target.value)}
+                    value={agendaSearchTerm}
+                    onChange={(e) => setAgendaSearchTerm(e.target.value)}
                   />
                 </div>
               </div>
@@ -2323,6 +2488,12 @@ export default function App() {
                       <Archive className="w-3.5 h-3.5" /> Archivovat vyřešené
                     </button>
                     <button 
+                      onClick={() => setShowArchive(!showArchive)}
+                      className="flex-1 md:flex-none bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 border border-zinc-700"
+                    >
+                      <Archive className="w-3.5 h-3.5" /> {showArchive ? 'Zpět na Agendu' : '🗄️ Zobraziť archív'}
+                    </button>
+                    <button 
                       onClick={() => { resetForm(); setEditingItem(null); setIsModalOpen(true); }}
                       className="flex-1 md:flex-none bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
                     >
@@ -2333,6 +2504,53 @@ export default function App() {
               </div>
             </div>
 
+            {showArchive ? (
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-zinc-300 mb-6 flex items-center gap-2">
+                  <Archive className="w-5 h-5 text-zinc-500" /> Archivované podněty
+                </h3>
+                <div className="space-y-4">
+                  {filteredAgendaItems.filter(m => m.status === 'ARCHIVED').map((m) => (
+                    <div 
+                      key={m.id}
+                      onClick={() => handleViewAgendaItem(m)}
+                      className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 cursor-pointer hover:border-zinc-700 transition-all flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
+                            m.priority === 'HIGH' ? 'bg-red-500/10 text-red-500' : 
+                            m.priority === 'MEDIUM' ? 'bg-yellow-500/10 text-yellow-500' : 
+                            'bg-blue-500/10 text-blue-500'
+                          )}>
+                            {m.priority}
+                          </span>
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider bg-zinc-800 px-2 py-0.5 rounded-full">
+                            {m.category}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-zinc-200">{m.title}</h4>
+                        <p className="text-xs text-zinc-500 mt-1">Od: {m.organizer_name} • {format(parseISO(m.created_at), 'dd.MM.yyyy HH:mm', { locale: cs })}</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 text-xs font-bold">
+                          <span className="text-green-500 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'UP').length}</span>
+                          <span className="text-red-500 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'DOWN').length}</span>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-zinc-600" />
+                      </div>
+                    </div>
+                  ))}
+                  {filteredAgendaItems.filter(m => m.status === 'ARCHIVED').length === 0 && (
+                    <div className="text-center py-12 text-zinc-500">
+                      <Archive className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                      <p>Archiv je prázdný.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {['INBOX', 'AGENDA', 'RESOLVED'].map((status) => (
                 <div 
@@ -2349,16 +2567,17 @@ export default function App() {
                       {status}
                     </h3>
                     <span className="bg-zinc-800 text-zinc-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      {filteredMeetings.filter(m => m.status === status).length}
+                      {filteredAgendaItems.filter(m => m.status === status).length}
                     </span>
                   </div>
                   
                   <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                    {filteredMeetings.filter(m => m.status === status).map((m) => (
+                    {filteredAgendaItems.filter(m => m.status === status).map((m) => (
                       <div 
                         key={m.id}
                         draggable={isAdmin}
                         onDragStart={(e) => handleDragStart(e, m.id)}
+                        onClick={() => handleViewAgendaItem(m)}
                         className={cn(
                           "bg-zinc-950 border border-zinc-800 rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-zinc-700 transition-all group",
                           m.priority === 'HIGH' ? 'border-l-2 border-l-red-500' : 
@@ -2367,26 +2586,46 @@ export default function App() {
                         )}
                       >
                         <div className="flex justify-between items-start mb-2">
-                          <span className={cn(
-                            "text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
-                            m.category === 'BUG' ? "bg-red-500/10 text-red-500" :
-                            m.category === 'SUGGESTION' ? "bg-green-500/10 text-green-500" :
-                            "bg-orange-500/10 text-orange-500"
-                          )}>
-                            {m.category}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn(
+                              "text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                              m.priority === 'HIGH' ? "bg-red-500/10 text-red-500" :
+                              m.priority === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" :
+                              "bg-blue-500/10 text-blue-500"
+                            )}>
+                              {m.priority}
+                            </span>
+                            <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                              {m.category}
+                            </span>
+                          </div>
                           {isAdmin && (
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEdit(m)} className="text-zinc-500 hover:text-white"><Edit2 className="w-3 h-3" /></button>
-                              <button onClick={() => handleDelete(m.id)} className="text-zinc-500 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); handleEdit(m); }} className="text-zinc-500 hover:text-white"><Edit2 className="w-3 h-3" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }} className="text-zinc-500 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
                             </div>
                           )}
                         </div>
                         <h4 className="text-sm font-bold text-zinc-100 mb-1">{escapeHtml(m.title)}</h4>
                         <p className="text-xs text-zinc-500 line-clamp-2 mb-3">{escapeHtml(m.description)}</p>
-                        <div className="flex items-center justify-between text-[10px] text-zinc-600">
-                          <span className="flex items-center gap-1"><User className="w-3 h-3" /> {m.organizer_name}</span>
-                          <span>{format(parseISO(m.created_at), 'dd.MM.yyyy')}</span>
+                        
+                        <div className="flex items-center justify-between text-[10px] text-zinc-600 mt-3 pt-3 border-t border-zinc-800/50">
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1 text-green-500 font-bold"><ThumbsUp className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'UP').length}</span>
+                            <span className="flex items-center gap-1 text-red-500 font-bold"><ThumbsDown className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'DOWN').length}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {agendaReads.filter(r => r.agenda_id === m.id).slice(0, 3).map((read, idx) => (
+                              <div key={idx} className="w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[8px] font-bold text-zinc-400" title={read.admin_name}>
+                                {read.admin_name.substring(0, 2).toUpperCase()}
+                              </div>
+                            ))}
+                            {agendaReads.filter(r => r.agenda_id === m.id).length > 3 && (
+                              <div className="w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[8px] font-bold text-zinc-400">
+                                +{agendaReads.filter(r => r.agenda_id === m.id).length - 3}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -2394,6 +2633,7 @@ export default function App() {
                 </div>
               ))}
             </div>
+            )}
           </div>
         ) : activeSection === 'LOGS' ? (
           isAdmin ? (
@@ -3201,7 +3441,7 @@ export default function App() {
                 </div>
               )}
 
-              {activeSection === 'MEETINGS' && (
+              {activeSection === 'AGENDA' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Titulok</label>
@@ -3256,6 +3496,78 @@ export default function App() {
                       onChange={e => setFormData({...formData, description: e.target.value})}
                       placeholder="Detailný popis..."
                     />
+                  </div>
+                  {!editingItem && (
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Ping Role (Discord)</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: '1336047749938020442', name: 'Project Management' },
+                          { id: '1413570330987073576', name: 'Dev' },
+                          { id: '1405965334602715257', name: 'Senior Staff Team' },
+                          { id: '1367490395545534536', name: 'Staff Team' },
+                          { id: '1367962791360860215', name: 'Staff Test' }
+                        ].map(role => (
+                          <button
+                            key={role.id}
+                            type="button"
+                            onClick={() => {
+                              const roles = formData.ping_roles || [];
+                              if (roles.includes(role.id)) {
+                                setFormData({...formData, ping_roles: roles.filter(r => r !== role.id)});
+                              } else {
+                                setFormData({...formData, ping_roles: [...roles, role.id]});
+                              }
+                            }}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                              (formData.ping_roles || []).includes(role.id)
+                                ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50"
+                                : "bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-700"
+                            )}
+                          >
+                            @{role.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Média a Odkazy (Volitelné)</label>
+                    {formData.agenda_media_urls.map((url, index) => (
+                      <div key={index} className="flex gap-2 mb-2">
+                        <input 
+                          type="url" 
+                          className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                          value={url}
+                          onChange={e => {
+                            const newUrls = [...formData.agenda_media_urls];
+                            newUrls[index] = e.target.value;
+                            setFormData({...formData, agenda_media_urls: newUrls});
+                          }}
+                          placeholder="https://..."
+                        />
+                        {formData.agenda_media_urls.length > 1 && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newUrls = formData.agenda_media_urls.filter((_, i) => i !== index);
+                              setFormData({...formData, agenda_media_urls: newUrls});
+                            }}
+                            className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button 
+                      type="button"
+                      onClick={() => setFormData({...formData, agenda_media_urls: [...formData.agenda_media_urls, '']})}
+                      className="text-xs font-bold text-purple-500 hover:text-purple-400 flex items-center gap-1 mt-2"
+                    >
+                      <Plus className="w-3 h-3" /> Přidat další odkaz
+                    </button>
                   </div>
                 </div>
               )}
@@ -3443,6 +3755,217 @@ export default function App() {
               >
                 Zavřít
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Viewing Agenda Item Modal */}
+      {viewingAgendaItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/50">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                    viewingAgendaItem.priority === 'HIGH' ? "bg-red-500/10 text-red-500" :
+                    viewingAgendaItem.priority === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" :
+                    "bg-blue-500/10 text-blue-500"
+                  )}>
+                    {viewingAgendaItem.priority}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                    {viewingAgendaItem.category}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                    {viewingAgendaItem.status}
+                  </span>
+                </div>
+                <h2 className="text-2xl font-black text-white">{viewingAgendaItem.title}</h2>
+                <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500">
+                  <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> {viewingAgendaItem.organizer_name}</span>
+                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {format(parseISO(viewingAgendaItem.created_at), 'dd.MM.yyyy HH:mm', { locale: cs })}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingAgendaItem(null)}
+                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-zinc-400" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-6">
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Popis</label>
+                <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                  {viewingAgendaItem.description}
+                </div>
+              </div>
+
+              {/* Media Section */}
+              {Array.isArray(viewingAgendaItem.media_urls) && viewingAgendaItem.media_urls.length > 0 && (
+                <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl">
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Přílohy</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {viewingAgendaItem.media_urls.map((url, idx) => {
+                      const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(url) || url.includes('imgur.com') || url.includes('prnt.sc');
+                      
+                      if (isImage) {
+                        return (
+                          <a key={idx} href={url} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-800 hover:border-zinc-600 transition-all group">
+                            <img src={url} alt={`Příloha ${idx + 1}`} className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-300" />
+                          </a>
+                        );
+                      }
+                      
+                      return (
+                        <a 
+                          key={idx}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white p-4 rounded-xl transition-all flex items-center gap-3"
+                        >
+                          <LinkIcon className="w-5 h-5 text-purple-500" />
+                          <span className="text-sm font-bold truncate">Otevřít přílohu {idx + 1}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Voting Section */}
+              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl">
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Hlasování</label>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={async () => {
+                      if (viewingAgendaItem.status === 'ARCHIVED') return;
+                      const adminId = user?.id;
+                      if (!adminId) return;
+                      
+                      const existingVote = agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === adminId);
+                      
+                      if (existingVote?.vote === 'UP') {
+                        await supabase.from('agenda_votes').delete().eq('agenda_id', viewingAgendaItem.id).eq('admin_id', adminId);
+                      } else {
+                        if (existingVote) {
+                          await supabase.from('agenda_votes').update({ vote: 'UP' }).eq('agenda_id', viewingAgendaItem.id).eq('admin_id', adminId);
+                        } else {
+                          await supabase.from('agenda_votes').insert({ agenda_id: viewingAgendaItem.id, admin_id: adminId, vote: 'UP' });
+                        }
+                      }
+                      fetchAgendaVotes();
+                    }}
+                    disabled={viewingAgendaItem.status === 'ARCHIVED'}
+                    className={cn(
+                      "flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                      agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === user?.id)?.vote === 'UP'
+                        ? "bg-green-500/20 text-green-500 border border-green-500/50"
+                        : "bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-green-500",
+                      viewingAgendaItem.status === 'ARCHIVED' && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <ThumbsUp className="w-5 h-5" /> Súhlasím ({agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'UP').length})
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (viewingAgendaItem.status === 'ARCHIVED') return;
+                      const adminId = user?.id;
+                      if (!adminId) return;
+                      
+                      const existingVote = agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === adminId);
+                      
+                      if (existingVote?.vote === 'DOWN') {
+                        await supabase.from('agenda_votes').delete().eq('agenda_id', viewingAgendaItem.id).eq('admin_id', adminId);
+                      } else {
+                        if (existingVote) {
+                          await supabase.from('agenda_votes').update({ vote: 'DOWN' }).eq('agenda_id', viewingAgendaItem.id).eq('admin_id', adminId);
+                        } else {
+                          await supabase.from('agenda_votes').insert({ agenda_id: viewingAgendaItem.id, admin_id: adminId, vote: 'DOWN' });
+                        }
+                      }
+                      fetchAgendaVotes();
+                    }}
+                    disabled={viewingAgendaItem.status === 'ARCHIVED'}
+                    className={cn(
+                      "flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                      agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === user?.id)?.vote === 'DOWN'
+                        ? "bg-red-500/20 text-red-500 border border-red-500/50"
+                        : "bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-red-500",
+                      viewingAgendaItem.status === 'ARCHIVED' && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <ThumbsDown className="w-5 h-5" /> Nesúhlasím ({agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'DOWN').length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Comments Section */}
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Diskusia</label>
+                <div className="space-y-3 mb-4">
+                  {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).map(comment => (
+                    <div key={comment.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-zinc-300">{comment.author_name}</span>
+                        <span className="text-[10px] text-zinc-600">{format(parseISO(comment.created_at), 'dd.MM. HH:mm')}</span>
+                      </div>
+                      <p className="text-sm text-zinc-400">{comment.content}</p>
+                    </div>
+                  ))}
+                  {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).length === 0 && (
+                    <p className="text-xs text-zinc-600 italic text-center py-4">Zatím žádné komentáře.</p>
+                  )}
+                </div>
+                
+                {viewingAgendaItem.status !== 'ARCHIVED' && (
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={newAgendaComment}
+                      onChange={(e) => setNewAgendaComment(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && newAgendaComment.trim()) {
+                          const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
+                          const { error } = await supabase.from('agenda_comments').insert({
+                            agenda_id: viewingAgendaItem.id,
+                            author_name: adminName,
+                            content: newAgendaComment.trim()
+                          });
+                          if (!error) {
+                            setNewAgendaComment('');
+                            fetchAgendaComments();
+                          }
+                        }
+                      }}
+                      placeholder="Napsat komentář..."
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    />
+                    <button 
+                      onClick={async () => {
+                        if (!newAgendaComment.trim()) return;
+                        const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
+                        const { error } = await supabase.from('agenda_comments').insert({
+                          agenda_id: viewingAgendaItem.id,
+                          author_name: adminName,
+                          content: newAgendaComment.trim()
+                        });
+                        if (!error) {
+                          setNewAgendaComment('');
+                          fetchAgendaComments();
+                        }
+                      }}
+                      className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl font-bold text-sm transition-all"
+                    >
+                      Odeslat
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
