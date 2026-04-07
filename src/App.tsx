@@ -44,7 +44,10 @@ import {
   Lock,
   Copy,
   Image,
-  Video
+  Video,
+  ThumbsUp,
+  ThumbsDown,
+  Link as LinkIcon
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, AgendaItem, Log, Admin, PunishmentReason, SuggestionComment, SystemSetting, AgendaRead, AgendaComment, AgendaVote } from './lib/supabase';
@@ -3808,14 +3811,63 @@ export default function App() {
               {Array.isArray(viewingAgendaItem.media_urls) && viewingAgendaItem.media_urls.length > 0 && (
                 <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl">
                   <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Přílohy</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     {viewingAgendaItem.media_urls.map((url, idx) => {
                       const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(url) || url.includes('imgur.com') || url.includes('prnt.sc');
+                      const isDirectVideo = /\.(mp4|webm|ogg)$/i.test(url);
                       
+                      // YouTube
+                      const ytMatch = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
+                      const ytId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
+
+                      // Medal.tv
+                      const medalMatch = url.match(/medal\.tv\/games\/[^/]+\/clips\/([^/]+)\/([^/?]+)/);
+                      const medalId = medalMatch ? `${medalMatch[1]}/${medalMatch[2]}` : null;
+                      
+                      if (ytId) {
+                        return (
+                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800">
+                            <iframe 
+                              src={`https://www.youtube.com/embed/${ytId}`} 
+                              title="YouTube video player" 
+                              frameBorder="0" 
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                              allowFullScreen
+                              className="w-full h-full"
+                            ></iframe>
+                          </div>
+                        );
+                      }
+
+                      if (medalId) {
+                        return (
+                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 relative">
+                            <iframe 
+                              src={`https://medal.tv/clip/${medalId}?autoplay=0&muted=0&loop=0`} 
+                              frameBorder="0" 
+                              allow="autoplay; encrypted-media" 
+                              allowFullScreen
+                              className="w-full h-full absolute top-0 left-0"
+                            ></iframe>
+                          </div>
+                        );
+                      }
+
+                      if (isDirectVideo) {
+                        return (
+                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 bg-black">
+                            <video controls className="w-full h-full">
+                              <source src={url} />
+                              Váš prohlížeč nepodporuje přehrávání videa.
+                            </video>
+                          </div>
+                        );
+                      }
+
                       if (isImage) {
                         return (
                           <a key={idx} href={url} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-800 hover:border-zinc-600 transition-all group">
-                            <img src={url} alt={`Příloha ${idx + 1}`} className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-300" />
+                            <img src={url} alt={`Příloha ${idx + 1}`} className="w-full h-auto max-h-96 object-contain bg-zinc-900 group-hover:scale-[1.02] transition-transform duration-300" />
                           </a>
                         );
                       }
