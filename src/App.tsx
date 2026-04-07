@@ -47,7 +47,8 @@ import {
   Video,
   ThumbsUp,
   ThumbsDown,
-  Link as LinkIcon
+  Link as LinkIcon,
+  X
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, AgendaItem, Log, Admin, PunishmentReason, SuggestionComment, SystemSetting, AgendaRead, AgendaComment, AgendaVote } from './lib/supabase';
@@ -132,6 +133,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
+  const [viewingWanted, setViewingWanted] = useState<Wanted | null>(null);
   const [selectedPlayerHistory, setSelectedPlayerHistory] = useState<{discord_id: string, discord_username: string} | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
@@ -982,39 +984,37 @@ export default function App() {
     // Send Webhook for Banlist
     if (activeSection === 'PLAYERS' && playersTab === 'BANLIST') {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          
-          const embedColor = formData.type === 'BAN' ? 15158332 : (formData.type === 'WARN' ? 16776960 : 15844367);
-          const emoji = formData.type === 'BAN' ? '🔨' : (formData.type === 'WARN' ? '⚠️' : '👢');
-          const actionText = editingItem ? 'Upraven' : 'Nový';
-          
-          await fetch('/api/webhook', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session?.access_token}`
-            },
-            body: JSON.stringify({
-              content: `Hráč ${formData.discord_id ? `<@${formData.discord_id}>` : `**${formData.discord_username || 'Neznámý'}**`} dostal trest od administrátora ${adminDiscordId ? `<@${adminDiscordId}>` : `**${adminName}**`}.`,
-              embeds: [{
-                title: `${emoji} ${actionText} Trest | ${formData.type}`,
-                color: embedColor,
-                fields: [
-                  { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
-                  { name: '🛡️ Admin', value: adminName, inline: true },
-                  { name: '\u200B', value: '\u200B', inline: true },
-                  { name: '📋 Důvod', value: formData.reason || 'Nezadán', inline: false },
-                  { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
-                  { name: '🔗 Důkaz', value: formData.proof_urls.filter(url => url.trim() !== '').length > 0 ? formData.proof_urls.filter(url => url.trim() !== '').map((url, i) => `[Důkaz ${i+1}](${url})`).join(', ') : '*Bez důkazu*', inline: true },
-                  { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
-                ],
-                footer: {
-                  text: 'Systém trestů | GenK'
-                },
-                timestamp: new Date().toISOString()
-              }]
-            })
-          });
+          const webhookUrl = systemSettings.find(s => s.key === 'banlist_webhook')?.value;
+          if (webhookUrl) {
+            const embedColor = formData.type === 'BAN' ? 15158332 : (formData.type === 'WARN' ? 16776960 : 15844367);
+            const emoji = formData.type === 'BAN' ? '🔨' : (formData.type === 'WARN' ? '⚠️' : '👢');
+            const actionText = editingItem ? 'Upraven' : 'Nový';
+            
+            await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `Hráč ${formData.discord_id ? `<@${formData.discord_id}>` : `**${formData.discord_username || 'Neznámý'}**`} dostal trest od administrátora ${adminDiscordId ? `<@${adminDiscordId}>` : `**${adminName}**`}.`,
+                embeds: [{
+                  title: `${emoji} ${actionText} Trest | ${formData.type}`,
+                  color: embedColor,
+                  fields: [
+                    { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
+                    { name: '🛡️ Admin', value: adminName, inline: true },
+                    { name: '\u200B', value: '\u200B', inline: true },
+                    { name: '📋 Důvod', value: formData.reason || 'Nezadán', inline: false },
+                    { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
+                    { name: '🔗 Důkaz', value: formData.proof_urls.filter(url => url.trim() !== '').length > 0 ? formData.proof_urls.filter(url => url.trim() !== '').map((url, i) => `[Důkaz ${i+1}](${url})`).join(', ') : '*Bez důkazu*', inline: true },
+                    { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
+                  ],
+                  footer: {
+                    text: 'Systém trestů | GenK'
+                  },
+                  timestamp: new Date().toISOString()
+                }]
+              })
+            });
+          }
         } catch (e) {
           console.error('Webhook failed', e);
         }
@@ -1509,7 +1509,7 @@ export default function App() {
                   <ListTodo className="w-8 h-8 text-yellow-500" />
                 </div>
                 <div>
-                  <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Podnety na poradu</p>
+                  <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Otevřená Agenda</p>
                   <p className="text-3xl font-black text-white">
                     {agendaItems.filter(m => m.status === 'INBOX' || m.status === 'AGENDA').length}
                   </p>
@@ -1860,62 +1860,71 @@ export default function App() {
               <div className="space-y-6">
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
                   <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <Settings className="w-5 h-5 text-indigo-500" /> Discord Webhook (Agenda)
+                    <Settings className="w-5 h-5 text-indigo-500" /> Discord Integrace (Webhooks)
                   </h3>
-                  <p className="text-xs text-zinc-500 mb-6">Nastavte Discord Webhook URL pro automatické odesílání notifikací při vytvoření nového podnětu v Agendě.</p>
+                  <p className="text-xs text-zinc-500 mb-6">Nastavte Discord Webhook URL adresy pro automatické odesílání notifikací do různých kanálů.</p>
                   
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Webhook URL</label>
-                      <input 
-                        type="text" 
-                        value={systemSettings.find(s => s.key === 'agenda_webhook')?.value || ''}
-                        onChange={async (e) => {
-                          const val = e.target.value;
-                          setSystemSettings(prev => {
-                            const existing = prev.find(s => s.key === 'agenda_webhook');
-                            if (existing) return prev.map(s => s.key === 'agenda_webhook' ? { ...s, value: val } : s);
-                            return [...prev, { key: 'agenda_webhook', value: val }];
-                          });
-                          await supabase.from('system_settings').upsert({ key: 'agenda_webhook', value: val });
-                        }}
-                        placeholder="https://discord.com/api/webhooks/..."
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all font-mono"
-                      />
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
-                        if (!webhookUrl) {
-                          toast.error('Webhook URL není nastavena.');
-                          return;
-                        }
-                        try {
-                          const res = await fetch(webhookUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              content: "🔔 **Testovací zpráva z Admin Panelu**",
-                              embeds: [{
-                                title: "Webhook je správně nastaven!",
-                                description: "Notifikace pro Agendu budou chodit do tohoto kanálu.",
-                                color: 5814783
-                              }]
-                            })
-                          });
-                          if (res.ok) {
-                            toast.success('Testovací zpráva byla odeslána.');
-                          } else {
-                            toast.error('Chyba při odesílání zprávy.');
-                          }
-                        } catch (e) {
-                          toast.error('Chyba při odesílání zprávy.');
-                        }
-                      }}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all"
-                    >
-                      Testovat Webhook
-                    </button>
+                  <div className="space-y-6">
+                    {[
+                      { key: 'agenda_webhook', label: 'Agenda Webhook', desc: 'Notifikace při vytvoření nového podnětu v Agendě.' },
+                      { key: 'banlist_webhook', label: 'Banlist & Tresty Webhook', desc: 'Notifikace při uložení trestu (Ban, Warn, atd.).' },
+                      { key: 'feedback_webhook', label: 'Zpětná vazba Webhook', desc: 'Notifikace při odeslání zpětné vazby / bug reportu.' }
+                    ].map(webhook => (
+                      <div key={webhook.key} className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800/50">
+                        <label className="block text-sm font-bold text-zinc-300 mb-1">{webhook.label}</label>
+                        <p className="text-[10px] text-zinc-500 mb-3">{webhook.desc}</p>
+                        <div className="flex gap-3">
+                          <input 
+                            type="text" 
+                            value={systemSettings.find(s => s.key === webhook.key)?.value || ''}
+                            onChange={async (e) => {
+                              const val = e.target.value;
+                              setSystemSettings(prev => {
+                                const existing = prev.find(s => s.key === webhook.key);
+                                if (existing) return prev.map(s => s.key === webhook.key ? { ...s, value: val } : s);
+                                return [...prev, { key: webhook.key, value: val }];
+                              });
+                              await supabase.from('system_settings').upsert({ key: webhook.key, value: val });
+                            }}
+                            placeholder="https://discord.com/api/webhooks/..."
+                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all font-mono"
+                          />
+                          <button 
+                            onClick={async () => {
+                              const webhookUrl = systemSettings.find(s => s.key === webhook.key)?.value;
+                              if (!webhookUrl) {
+                                toast.error('Webhook URL není nastavena.');
+                                return;
+                              }
+                              try {
+                                const res = await fetch(webhookUrl, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    content: "🔔 **Testovací zpráva z Admin Panelu**",
+                                    embeds: [{
+                                      title: `${webhook.label} je správně nastaven!`,
+                                      description: webhook.desc,
+                                      color: 5814783
+                                    }]
+                                  })
+                                });
+                                if (res.ok) {
+                                  toast.success('Testovací zpráva byla odeslána.');
+                                } else {
+                                  toast.error('Chyba při odesílání zprávy.');
+                                }
+                              } catch (e) {
+                                toast.error('Chyba při odesílání zprávy.');
+                              }
+                            }}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
+                          >
+                            Testovat
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2070,133 +2079,74 @@ export default function App() {
                   ) : filteredPunishments.length === 0 ? (
                     <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
                   ) : (
-                    <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
+                    <div className="flex flex-col gap-1">
                       {filteredPunishments.map((p) => {
                         const expired = isExpired(p.expiry_date);
                         const isBan = p.type === 'BAN';
+                        const proofUrls = Array.isArray(p.proof_url) ? p.proof_url : (typeof p.proof_url === 'string' && p.proof_url ? [p.proof_url] : []);
                         
                         return (
-                          <div key={p.id} className="relative pl-6 group">
-                            <div 
-                              className={cn(
-                                "bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 transition-all relative cursor-pointer group/card",
-                                p.type === 'BAN' ? "border-l-4 border-l-red-600 bg-red-600/5 hover:bg-red-600/10" :
-                                p.type === 'WARN' ? "border-l-4 border-l-orange-500 bg-orange-500/5 hover:bg-orange-500/10" :
-                                p.type === 'SUSPEND' ? "border-l-4 border-l-purple-500 bg-purple-500/5 hover:bg-purple-500/10" :
-                                p.type === 'WL-DOWN' ? "border-l-4 border-l-blue-500 bg-blue-500/5 hover:bg-blue-500/10" :
-                                "border-l-4 border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
-                              )}
-                              onClick={() => {
-                                setEditingItem(p);
-                                setFormData({
-                                  ...formData,
-                                  discord_id: p.player_discord_id || '',
-                                  discord_username: p.player_name || '',
-                                  type: p.type,
-                                  reason: p.reason,
-                                  details: p.details,
-                                  proof_urls: Array.isArray(p.proof_url) && p.proof_url.length > 0 ? p.proof_url : [''],
-                                  expires_at: p.expiry_date ? new Date(p.expiry_date).toISOString().slice(0, 16) : '',
-                                });
-                                setIsModalOpen(true);
-                              }}
-                            >
-                              {isAdmin && (
-                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover/card:opacity-100 transition-opacity">
-                                  <button onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors border border-zinc-800">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              )}
-                              <div className="flex flex-wrap items-center gap-4 mb-2 pr-20">
-                                <span className={cn(
-                                  "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
-                                  p.type === 'BAN' ? "bg-red-500/10 text-red-500" :
-                                  p.type === 'WARN' ? "bg-orange-500/10 text-orange-500" :
-                                  p.type === 'KICK' ? "bg-yellow-500/10 text-yellow-500" : "bg-blue-500/10 text-blue-500"
-                                )}>
-                                  {p.type}
-                                </span>
-                                <span className="text-xs text-zinc-400 font-medium">
-                                  {format(parseISO(p.created_at), 'dd.MM.yyyy HH:mm')}
-                                </span>
-                                <div 
-                                  className="font-bold text-sm text-zinc-100 hover:text-blue-400 transition-colors flex items-center gap-2"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedPlayerHistory({ discord_id: p.player_discord_id, discord_username: p.player_name || 'Neznámý' });
-                                  }}
-                                >
-                                  <User className="w-4 h-4 text-zinc-500" />
+                          <div 
+                            key={p.id} 
+                            className="group flex items-center justify-between bg-zinc-950 hover:bg-zinc-900 border border-zinc-800/50 hover:border-zinc-700 rounded-lg py-3 px-4 cursor-pointer transition-all"
+                            onClick={() => setViewingPunishment(p)}
+                          >
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                              <div className="flex items-center gap-3 w-48 shrink-0">
+                                <div className={cn(
+                                  "w-2 h-2 rounded-full",
+                                  p.type === 'BAN' ? "bg-red-500" :
+                                  p.type === 'WARN' ? "bg-orange-500" :
+                                  p.type === 'SUSPEND' ? "bg-purple-500" :
+                                  p.type === 'WL-DOWN' ? "bg-blue-500" :
+                                  "bg-zinc-500"
+                                )} />
+                                <span className="text-sm font-bold text-zinc-100 truncate">
                                   {p.player_name || 'Neznámý'}
-                                  <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
-                                    ({p.player_discord_id || 'Neznámé'})
-                                    {p.player_discord_id && (
-                                      <button 
-                                        onClick={(e) => handleCopyId(e, p.player_discord_id!)}
-                                        className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
-                                        title="Kopírovat Discord ID"
-                                      >
-                                        <Copy className="w-3 h-3" />
-                                      </button>
-                                    )}
+                                </span>
+                              </div>
+                              
+                              <div className="flex-1 min-w-0 flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">{p.type}</span>
+                                <span className="text-sm text-zinc-300 truncate">{escapeHtml(p.reason)}</span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4 shrink-0">
+                              {proofUrls.length > 0 && (
+                                <div className="flex items-center gap-1 text-zinc-500" title="Obsahuje důkazy">
+                                  <LinkIcon className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-bold">{proofUrls.length}</span>
+                                </div>
+                              )}
+                              
+                              <div className="w-24 text-right">
+                                {p.expiry_date ? (
+                                  <span className={cn(
+                                    "text-[10px] font-bold uppercase",
+                                    expired ? "text-zinc-600" : "text-green-500"
+                                  )}>
+                                    {expired ? 'Vypršelo' : format(parseISO(p.expiry_date), 'dd.MM.yyyy')}
                                   </span>
-                                </div>
+                                ) : (
+                                  <span className="text-[10px] font-bold uppercase text-red-500">
+                                    Permanentní
+                                  </span>
+                                )}
                               </div>
                               
-                              <div className="mb-3">
-                                <h4 className="text-sm font-bold text-zinc-100 mb-1">{escapeHtml(p.reason)}</h4>
-                                {p.details && <p className="text-xs text-zinc-400">{escapeHtml(p.details)}</p>}
+                              <div className="w-32 text-right">
+                                <span className="text-xs text-zinc-500 truncate block">{p.admin_name}</span>
                               </div>
                               
-                              <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
-                                <div className="flex items-center gap-4">
-                                  <div className="flex items-center gap-2 text-xs">
-                                    <span className="text-zinc-500">Uděleno:</span>
-                                    <span className="text-zinc-300 font-bold">{p.admin_name}</span>
-                                  </div>
-                                  {p.expiry_date ? (
-                                    <span className={cn(
-                                      "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md border",
-                                      expired ? "bg-zinc-800 text-zinc-500 border-zinc-700/50" : "bg-green-500/10 text-green-500 border-green-500/20"
-                                    )}>
-                                      {expired ? 'VYPRŠELÉ' : `AKTIVNÍ DO ${format(parseISO(p.expiry_date), 'dd.MM.yyyy')} ${formatExpiration(p.expiry_date)}`}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/20">
-                                      Permanentní
-                                    </span>
-                                  )}
-                                </div>
-                                {(() => {
-                                  const proofUrls = Array.isArray(p.proof_url) ? p.proof_url : (typeof p.proof_url === 'string' && p.proof_url ? [p.proof_url] : []);
-                                  if (proofUrls.length === 0) return null;
-                                  
-                                  return (
-                                    <div className="flex items-center gap-1.5">
-                                      {proofUrls.map((url, idx) => {
-                                        let Icon = FileText;
-                                        if (url.includes('imgur.com') || url.includes('prnt.sc') || url.match(/\.(jpeg|jpg|gif|png)$/i)) Icon = Image;
-                                        else if (url.includes('youtube.com') || url.includes('youtu.be') || url.includes('medal.tv')) Icon = Video;
-                                        
-                                        return (
-                                          <a 
-                                            key={idx}
-                                            href={url} 
-                                            target="_blank" 
-                                            rel="noreferrer"
-                                            onClick={(e) => e.stopPropagation()}
-                                            className="flex items-center justify-center w-7 h-7 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-800 transition-colors"
-                                            title={`Důkaz ${idx + 1}`}
-                                          >
-                                            <Icon className="w-3.5 h-3.5" />
-                                          </a>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
+                              {isAdmin && (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }} 
+                                  className="p-1.5 opacity-0 group-hover:opacity-100 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-400 hover:text-red-500 transition-all ml-2"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -2235,77 +2185,68 @@ export default function App() {
                   {filteredWanted.length === 0 ? (
                     <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
                   ) : (
-                    <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
+                    <div className="flex flex-col gap-1">
                       {filteredWanted.map((w) => (
-                        <div key={w.id} className="relative pl-6 group">
-                          <div className={cn(
-                            "absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-900",
-                            w.danger_level === 'EXTREME' ? "bg-red-500" :
-                            w.danger_level === 'HIGH' ? "bg-orange-500" :
-                            w.danger_level === 'MEDIUM' ? "bg-yellow-500" : "bg-zinc-500"
-                          )} />
-                          <div className="bg-zinc-950 border border-zinc-800/50 rounded-xl p-4 hover:border-zinc-700 transition-colors relative">
-                            {isAdmin && (
-                              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={(e) => { e.stopPropagation(); handleEdit(w); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} className="p-1.5 bg-zinc-900 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-500 transition-colors">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
-                            <div className="flex flex-wrap items-center gap-4 mb-2 pr-20">
-                              <span className={cn(
-                                "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
-                                w.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
-                                w.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
-                                w.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
-                              )}>
-                                {w.danger_level}
+                        <div 
+                          key={w.id} 
+                          className="group flex items-center justify-between bg-zinc-950 hover:bg-zinc-900 border border-zinc-800/50 hover:border-zinc-700 rounded-lg py-3 px-4 cursor-pointer transition-all"
+                          onClick={() => setViewingWanted(w)}
+                        >
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <div className="flex items-center gap-3 w-48 shrink-0">
+                              <div className={cn(
+                                "w-2 h-2 rounded-full",
+                                w.danger_level === 'EXTREME' ? "bg-red-500" :
+                                w.danger_level === 'HIGH' ? "bg-orange-500" :
+                                w.danger_level === 'MEDIUM' ? "bg-yellow-500" : "bg-zinc-500"
+                              )} />
+                              <span className="text-sm font-bold text-zinc-100 truncate">
+                                {w.discord_username || 'Neznámý'}
                               </span>
+                            </div>
+                            
+                            <div className="flex-1 min-w-0 flex items-center gap-2">
                               <span className={cn(
-                                "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
-                                w.status === 'ACTIVE' ? "bg-green-500/10 text-green-500" : "bg-zinc-800 text-zinc-500"
+                                "text-[10px] font-bold uppercase tracking-wider shrink-0",
+                                w.status === 'ACTIVE' ? "text-green-500" : "text-zinc-500"
                               )}>
                                 {w.status}
                               </span>
                               {w.whitelist_status !== 'NONE' && (
                                 <span className={cn(
-                                  "text-[10px] font-bold uppercase px-2 py-0.5 rounded-md",
-                                  w.whitelist_status === 'REVOKED' ? "bg-red-500/10 text-red-500" : "bg-yellow-500/10 text-yellow-500"
+                                  "text-[10px] font-bold uppercase tracking-wider shrink-0",
+                                  w.whitelist_status === 'REVOKED' ? "text-red-500" : "text-yellow-500"
                                 )}>
                                   WL: {w.whitelist_status}
                                 </span>
                               )}
-                              <div className="font-bold text-sm text-zinc-100 flex items-center gap-2">
-                                <User className="w-4 h-4 text-zinc-500" />
-                                {w.discord_username || 'Neznámý'}
-                                <span className="text-[10px] text-zinc-500 font-mono tracking-tighter font-normal flex items-center gap-1">
-                                  ({w.discord_id || 'Neznámé ID'})
-                                  {w.discord_id && (
-                                    <button 
-                                      onClick={(e) => handleCopyId(e, w.discord_id!)}
-                                      className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
-                                      title="Kopírovat Discord ID"
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </span>
-                              </div>
+                              <span className="text-sm text-zinc-300 truncate ml-2">{escapeHtml(w.description)}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 shrink-0">
+                            <div className="w-24 text-right">
+                              <span className="text-[10px] font-bold uppercase text-zinc-500">
+                                {format(parseISO(w.created_at), 'dd.MM.yyyy')}
+                              </span>
                             </div>
                             
-                            <div className="mb-3">
-                              <p className="text-sm text-zinc-300">{escapeHtml(w.description)}</p>
-                            </div>
-                            
-                            <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-zinc-800/50">
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="text-zinc-500">Přidáno:</span>
-                                <span className="text-zinc-400">{format(parseISO(w.created_at), 'dd.MM.yyyy HH:mm')}</span>
+                            {isAdmin && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all ml-2">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(w); }} 
+                                  className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-400 hover:text-white transition-all"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(w.id); }} 
+                                  className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-400 hover:text-red-500 transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                            </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -3751,9 +3692,128 @@ export default function App() {
               })()}
             </div>
             
-            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end">
+            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end gap-3">
+              {isAdmin && (
+                <button 
+                  onClick={() => {
+                    setEditingItem(viewingPunishment);
+                    setFormData({
+                      ...formData,
+                      discord_id: viewingPunishment.player_discord_id || '',
+                      discord_username: viewingPunishment.player_name || '',
+                      type: viewingPunishment.type,
+                      reason: viewingPunishment.reason,
+                      details: viewingPunishment.details,
+                      proof_urls: Array.isArray(viewingPunishment.proof_url) && viewingPunishment.proof_url.length > 0 ? viewingPunishment.proof_url : [''],
+                      expires_at: viewingPunishment.expiry_date ? new Date(viewingPunishment.expiry_date).toISOString().slice(0, 16) : '',
+                    });
+                    setViewingPunishment(null);
+                    setIsModalOpen(true);
+                  }}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all text-sm flex items-center gap-2"
+                >
+                  <Edit2 className="w-4 h-4" /> Upravit
+                </button>
+              )}
               <button 
                 onClick={() => setViewingPunishment(null)}
+                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all text-sm"
+              >
+                Zavřít
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Viewing Wanted Modal */}
+      {viewingWanted && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-800/30">
+              <div className="flex items-center gap-3">
+                <div className="bg-orange-600/10 p-2 rounded-xl">
+                  <AlertTriangle className="w-5 h-5 text-orange-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Detail Watchlistu</h2>
+                  <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">ID: {viewingWanted.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingWanted(null)}
+                className="p-2 hover:bg-zinc-700 rounded-full transition-colors text-zinc-400 hover:text-white"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Hráč</label>
+                  <p className="text-lg font-bold text-zinc-100">{viewingWanted.discord_username || 'Neznámý'}</p>
+                  <p className="text-xs text-zinc-500 font-mono">{viewingWanted.discord_id || 'Neznámé ID'}</p>
+                </div>
+                <div className="text-right">
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Nebezpečnost</label>
+                  <span className={cn(
+                    "text-sm font-bold uppercase px-3 py-1 rounded-lg",
+                    viewingWanted.danger_level === 'EXTREME' ? "bg-red-500/10 text-red-500" :
+                    viewingWanted.danger_level === 'HIGH' ? "bg-orange-500/10 text-orange-500" :
+                    viewingWanted.danger_level === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" : "bg-zinc-800 text-zinc-500"
+                  )}>
+                    {viewingWanted.danger_level}
+                  </span>
+                </div>
+              </div>
+
+              <div className="h-px bg-zinc-800" />
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Popis / Důvod</label>
+                <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl text-sm text-zinc-300 leading-relaxed">
+                  {viewingWanted.description}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Status</label>
+                  <span className={cn(
+                    "text-sm font-bold uppercase",
+                    viewingWanted.status === 'ACTIVE' ? "text-green-500" : "text-zinc-500"
+                  )}>
+                    {viewingWanted.status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Whitelist</label>
+                  <span className={cn(
+                    "text-sm font-bold uppercase",
+                    viewingWanted.whitelist_status === 'REVOKED' ? "text-red-500" : 
+                    viewingWanted.whitelist_status === 'AT_RISK' ? "text-yellow-500" : "text-zinc-500"
+                  )}>
+                    {viewingWanted.whitelist_status}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end gap-3">
+              {isAdmin && (
+                <button 
+                  onClick={() => {
+                    handleEdit(viewingWanted);
+                    setViewingWanted(null);
+                  }}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all text-sm flex items-center gap-2"
+                >
+                  <Edit2 className="w-4 h-4" /> Upravit
+                </button>
+              )}
+              <button 
+                onClick={() => setViewingWanted(null)}
                 className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all text-sm"
               >
                 Zavřít
