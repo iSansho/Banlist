@@ -1877,14 +1877,13 @@ export default function App() {
                           <input 
                             type="text" 
                             value={systemSettings.find(s => s.key === webhook.key)?.value || ''}
-                            onChange={async (e) => {
+                            onChange={(e) => {
                               const val = e.target.value;
                               setSystemSettings(prev => {
                                 const existing = prev.find(s => s.key === webhook.key);
                                 if (existing) return prev.map(s => s.key === webhook.key ? { ...s, value: val } : s);
                                 return [...prev, { key: webhook.key, value: val }];
                               });
-                              await supabase.from('system_settings').upsert({ key: webhook.key, value: val });
                             }}
                             placeholder="https://discord.com/api/webhooks/..."
                             className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all font-mono"
@@ -1926,6 +1925,23 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const promises = systemSettings.map(setting => 
+                          supabase.from('system_settings').upsert({ key: setting.key, value: setting.value })
+                        );
+                        await Promise.all(promises);
+                        toast.success('Nastavení bylo úspěšně uloženo!');
+                      } catch (error) {
+                        console.error('Error saving settings:', error);
+                        toast.error('Chyba při ukládání nastavení.');
+                      }
+                    }}
+                    className="mt-6 w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20"
+                  >
+                    Uložit nastavení
+                  </button>
                 </div>
               </div>
             ) : (
@@ -3827,132 +3843,135 @@ export default function App() {
       {viewingAgendaItem && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-zinc-800 flex justify-between items-start bg-zinc-900/50">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
+            <div className="p-6 border-b border-zinc-800/50 flex justify-between items-start bg-zinc-900/30">
+              <div className="flex-1 pr-8">
+                <h2 className="text-3xl font-bold text-white mb-4 leading-tight">{viewingAgendaItem.title}</h2>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500 font-medium">
+                  <span className="flex items-center gap-1.5 text-zinc-300">
+                    <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-400">
+                      {viewingAgendaItem.organizer_name.charAt(0).toUpperCase()}
+                    </div>
+                    {viewingAgendaItem.organizer_name}
+                  </span>
+                  <span className="text-zinc-700">•</span>
+                  <span className="flex items-center gap-1">
+                    {format(parseISO(viewingAgendaItem.created_at), 'dd.MM.yyyy HH:mm', { locale: cs })}
+                  </span>
+                  <span className="text-zinc-700">•</span>
                   <span className={cn(
-                    "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                    "px-2 py-0.5 rounded-full uppercase tracking-wider text-[10px] font-bold",
                     viewingAgendaItem.priority === 'HIGH' ? "bg-red-500/10 text-red-500" :
                     viewingAgendaItem.priority === 'MEDIUM' ? "bg-yellow-500/10 text-yellow-500" :
                     "bg-blue-500/10 text-blue-500"
                   )}>
                     {viewingAgendaItem.priority}
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                  <span className="px-2 py-0.5 rounded-full uppercase tracking-wider text-[10px] font-bold bg-zinc-800/50 text-zinc-400">
                     {viewingAgendaItem.category}
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                  <span className="px-2 py-0.5 rounded-full uppercase tracking-wider text-[10px] font-bold bg-zinc-800/50 text-zinc-400">
                     {viewingAgendaItem.status}
                   </span>
-                </div>
-                <h2 className="text-2xl font-black text-white">{viewingAgendaItem.title}</h2>
-                <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500">
-                  <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> {viewingAgendaItem.organizer_name}</span>
-                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {format(parseISO(viewingAgendaItem.created_at), 'dd.MM.yyyy HH:mm', { locale: cs })}</span>
                 </div>
               </div>
               <button 
                 onClick={() => setViewingAgendaItem(null)}
-                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
+                className="p-2 hover:bg-zinc-800 rounded-xl transition-colors shrink-0"
               >
                 <X className="w-5 h-5 text-zinc-400" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-6">
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Popis</label>
-                <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+            <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col">
+              <div className="p-8 space-y-8 flex-1">
+                {/* Description */}
+                <div className="text-base text-zinc-200 leading-relaxed whitespace-pre-wrap font-medium">
                   {viewingAgendaItem.description}
                 </div>
-              </div>
 
-              {/* Media Section */}
-              {Array.isArray(viewingAgendaItem.media_urls) && viewingAgendaItem.media_urls.length > 0 && (
-                <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl">
-                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Přílohy</label>
-                  <div className="grid grid-cols-1 gap-4">
-                    {viewingAgendaItem.media_urls.map((url, idx) => {
-                      const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(url) || url.includes('imgur.com') || url.includes('prnt.sc');
-                      const isDirectVideo = /\.(mp4|webm|ogg)$/i.test(url);
-                      
-                      // YouTube
-                      const ytMatch = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
-                      const ytId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
+                {/* Media Section */}
+                {Array.isArray(viewingAgendaItem.media_urls) && viewingAgendaItem.media_urls.length > 0 && (
+                  <div className="pt-4">
+                    <div className="grid grid-cols-1 gap-4">
+                      {viewingAgendaItem.media_urls.map((url, idx) => {
+                        const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(url) || url.includes('imgur.com') || url.includes('prnt.sc');
+                        const isDirectVideo = /\.(mp4|webm|ogg)$/i.test(url);
+                        
+                        // YouTube
+                        const ytMatch = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
+                        const ytId = (ytMatch && ytMatch[2].length === 11) ? ytMatch[2] : null;
 
-                      // Medal.tv
-                      const medalMatch = url.match(/medal\.tv\/games\/[^/]+\/clips\/([^/]+)\/([^/?]+)/);
-                      const medalId = medalMatch ? `${medalMatch[1]}/${medalMatch[2]}` : null;
-                      
-                      if (ytId) {
+                        // Medal.tv
+                        const medalMatch = url.match(/medal\.tv\/games\/[^/]+\/clips\/([^/]+)\/([^/?]+)/);
+                        const medalId = medalMatch ? `${medalMatch[1]}/${medalMatch[2]}` : null;
+                        
+                        if (ytId) {
+                          return (
+                            <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800">
+                              <iframe 
+                                src={`https://www.youtube.com/embed/${ytId}`} 
+                                title="YouTube video player" 
+                                frameBorder="0" 
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                allowFullScreen
+                                className="w-full h-full"
+                              ></iframe>
+                            </div>
+                          );
+                        }
+
+                        if (medalId) {
+                          return (
+                            <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 relative">
+                              <iframe 
+                                src={`https://medal.tv/clip/${medalId}?autoplay=0&muted=0&loop=0`} 
+                                frameBorder="0" 
+                                allow="autoplay; encrypted-media" 
+                                allowFullScreen
+                                className="w-full h-full absolute top-0 left-0"
+                              ></iframe>
+                            </div>
+                          );
+                        }
+
+                        if (isDirectVideo) {
+                          return (
+                            <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 bg-black">
+                              <video controls className="w-full h-full">
+                                <source src={url} />
+                                Váš prohlížeč nepodporuje přehrávání videa.
+                              </video>
+                            </div>
+                          );
+                        }
+
+                        if (isImage) {
+                          return (
+                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-800 hover:border-zinc-600 transition-all group">
+                              <img src={url} alt={`Příloha ${idx + 1}`} className="w-full h-auto max-h-96 object-contain bg-zinc-900 group-hover:scale-[1.02] transition-transform duration-300" />
+                            </a>
+                          );
+                        }
+                        
                         return (
-                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800">
-                            <iframe 
-                              src={`https://www.youtube.com/embed/${ytId}`} 
-                              title="YouTube video player" 
-                              frameBorder="0" 
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                              allowFullScreen
-                              className="w-full h-full"
-                            ></iframe>
-                          </div>
-                        );
-                      }
-
-                      if (medalId) {
-                        return (
-                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 relative">
-                            <iframe 
-                              src={`https://medal.tv/clip/${medalId}?autoplay=0&muted=0&loop=0`} 
-                              frameBorder="0" 
-                              allow="autoplay; encrypted-media" 
-                              allowFullScreen
-                              className="w-full h-full absolute top-0 left-0"
-                            ></iframe>
-                          </div>
-                        );
-                      }
-
-                      if (isDirectVideo) {
-                        return (
-                          <div key={idx} className="w-full aspect-video rounded-xl overflow-hidden border border-zinc-800 bg-black">
-                            <video controls className="w-full h-full">
-                              <source src={url} />
-                              Váš prohlížeč nepodporuje přehrávání videa.
-                            </video>
-                          </div>
-                        );
-                      }
-
-                      if (isImage) {
-                        return (
-                          <a key={idx} href={url} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-800 hover:border-zinc-600 transition-all group">
-                            <img src={url} alt={`Příloha ${idx + 1}`} className="w-full h-auto max-h-96 object-contain bg-zinc-900 group-hover:scale-[1.02] transition-transform duration-300" />
+                          <a 
+                            key={idx}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white p-4 rounded-xl transition-all flex items-center gap-3"
+                          >
+                            <LinkIcon className="w-5 h-5 text-zinc-500" />
+                            <span className="text-sm font-medium truncate">Otevřít přílohu {idx + 1}</span>
                           </a>
                         );
-                      }
-                      
-                      return (
-                        <a 
-                          key={idx}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white p-4 rounded-xl transition-all flex items-center gap-3"
-                        >
-                          <LinkIcon className="w-5 h-5 text-purple-500" />
-                          <span className="text-sm font-bold truncate">Otevřít přílohu {idx + 1}</span>
-                        </a>
-                      );
-                    })}
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Voting Section */}
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl">
-                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Hlasování</label>
-                <div className="flex items-center gap-4">
+                {/* Voting Section */}
+                <div className="flex items-center gap-3 pt-6 border-t border-zinc-800/50">
                   <button 
                     onClick={async () => {
                       if (viewingAgendaItem.status === 'ARCHIVED') return;
@@ -3974,14 +3993,14 @@ export default function App() {
                     }}
                     disabled={viewingAgendaItem.status === 'ARCHIVED'}
                     className={cn(
-                      "flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                      "px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2 transition-all border",
                       agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === user?.id)?.vote === 'UP'
-                        ? "bg-green-500/20 text-green-500 border border-green-500/50"
-                        : "bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-green-500",
+                        ? "bg-green-500/10 text-green-500 border-green-500/30"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-zinc-200",
                       viewingAgendaItem.status === 'ARCHIVED' && "opacity-50 cursor-not-allowed"
                     )}
                   >
-                    <ThumbsUp className="w-5 h-5" /> Súhlasím ({agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'UP').length})
+                    👍 {agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'UP').length}
                   </button>
                   <button 
                     onClick={async () => {
@@ -4004,80 +4023,158 @@ export default function App() {
                     }}
                     disabled={viewingAgendaItem.status === 'ARCHIVED'}
                     className={cn(
-                      "flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                      "px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-2 transition-all border",
                       agendaVotes.find(v => v.agenda_id === viewingAgendaItem.id && v.admin_id === user?.id)?.vote === 'DOWN'
-                        ? "bg-red-500/20 text-red-500 border border-red-500/50"
-                        : "bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-red-500",
+                        ? "bg-red-500/10 text-red-500 border-red-500/30"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-zinc-200",
                       viewingAgendaItem.status === 'ARCHIVED' && "opacity-50 cursor-not-allowed"
                     )}
                   >
-                    <ThumbsDown className="w-5 h-5" /> Nesúhlasím ({agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'DOWN').length})
+                    👎 {agendaVotes.filter(v => v.agenda_id === viewingAgendaItem.id && v.vote === 'DOWN').length}
                   </button>
+                </div>
+
+                {/* Comments Section */}
+                <div className="pt-8 border-t border-zinc-800/50">
+                  <h3 className="text-sm font-bold text-zinc-100 mb-6 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-zinc-500" /> Diskusia
+                  </h3>
+                  <div className="space-y-6">
+                    {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).map(comment => (
+                      <div key={comment.id} className="flex gap-4">
+                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400 shrink-0 mt-1">
+                          {comment.author_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="text-sm font-bold text-zinc-200">{comment.author_name}</span>
+                            <span className="text-xs text-zinc-500">{format(parseISO(comment.created_at), 'dd.MM. HH:mm')}</span>
+                          </div>
+                          <p className="text-sm text-zinc-300 leading-relaxed">{comment.content}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).length === 0 && (
+                      <p className="text-sm text-zinc-500 italic py-4">Zatím žádné komentáře.</p>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Comments Section */}
-              <div>
-                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Diskusia</label>
-                <div className="space-y-3 mb-4">
-                  {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).map(comment => (
-                    <div key={comment.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-zinc-300">{comment.author_name}</span>
-                        <span className="text-[10px] text-zinc-600">{format(parseISO(comment.created_at), 'dd.MM. HH:mm')}</span>
-                      </div>
-                      <p className="text-sm text-zinc-400">{comment.content}</p>
+              {/* Sticky Comment Input */}
+              {viewingAgendaItem.status !== 'ARCHIVED' && (
+                <div className="p-4 border-t border-zinc-800 bg-zinc-900/95 backdrop-blur-sm sticky bottom-0">
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400 shrink-0">
+                      {(user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'A').charAt(0).toUpperCase()}
                     </div>
-                  ))}
-                  {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).length === 0 && (
-                    <p className="text-xs text-zinc-600 italic text-center py-4">Zatím žádné komentáře.</p>
-                  )}
-                </div>
-                
-                {viewingAgendaItem.status !== 'ARCHIVED' && (
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      value={newAgendaComment}
-                      onChange={(e) => setNewAgendaComment(e.target.value)}
-                      onKeyDown={async (e) => {
-                        if (e.key === 'Enter' && newAgendaComment.trim()) {
+                    <div className="flex-1 relative">
+                      <input 
+                        type="text"
+                        value={newAgendaComment}
+                        onChange={(e) => setNewAgendaComment(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && newAgendaComment.trim()) {
+                            const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
+                            const commentText = newAgendaComment.trim();
+                            const { error } = await supabase.from('agenda_comments').insert({
+                              agenda_id: viewingAgendaItem.id,
+                              author_name: adminName,
+                              content: commentText
+                            });
+                            if (!error) {
+                              setNewAgendaComment('');
+                              fetchAgendaComments();
+                              
+                              const mentionRegex = /@[\w.]+/g;
+                              const mentions = commentText.match(mentionRegex);
+                              
+                              if (mentions && mentions.length > 0) {
+                                const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
+                                if (webhookUrl) {
+                                  try {
+                                    await fetch(webhookUrl, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        content: mentions.join(' '),
+                                        embeds: [{
+                                          title: '🔔 Nová zmínka v diskuzi',
+                                          color: 15844367,
+                                          fields: [
+                                            { name: 'Komentář od', value: adminName, inline: true },
+                                            { name: 'Označení uživatelé', value: mentions.join(', '), inline: true },
+                                            { name: 'Text', value: commentText.length > 100 ? commentText.substring(0, 100) + '...' : commentText },
+                                            { name: 'Odkaz', value: `[Otevřít podnět na webu](${window.location.origin})` }
+                                          ]
+                                        }]
+                                      })
+                                    });
+                                  } catch (err) {
+                                    console.error('Failed to send mention webhook:', err);
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }}
+                        placeholder="Přidat komentář..."
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-4 pr-12 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-all"
+                      />
+                      <button 
+                        onClick={async () => {
+                          if (!newAgendaComment.trim()) return;
                           const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
+                          const commentText = newAgendaComment.trim();
                           const { error } = await supabase.from('agenda_comments').insert({
                             agenda_id: viewingAgendaItem.id,
                             author_name: adminName,
-                            content: newAgendaComment.trim()
+                            content: commentText
                           });
                           if (!error) {
                             setNewAgendaComment('');
                             fetchAgendaComments();
+                            
+                            const mentionRegex = /@[\w.]+/g;
+                            const mentions = commentText.match(mentionRegex);
+                            
+                            if (mentions && mentions.length > 0) {
+                              const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
+                              if (webhookUrl) {
+                                try {
+                                  await fetch(webhookUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      content: mentions.join(' '),
+                                      embeds: [{
+                                        title: '🔔 Nová zmínka v diskuzi',
+                                        color: 15844367,
+                                        fields: [
+                                          { name: 'Komentář od', value: adminName, inline: true },
+                                          { name: 'Označení uživatelé', value: mentions.join(', '), inline: true },
+                                          { name: 'Text', value: commentText.length > 100 ? commentText.substring(0, 100) + '...' : commentText },
+                                          { name: 'Odkaz', value: `[Otevřít podnět na webu](${window.location.origin})` }
+                                        ]
+                                      }]
+                                    })
+                                  });
+                                } catch (err) {
+                                  console.error('Failed to send mention webhook:', err);
+                                }
+                              }
+                            }
                           }
-                        }
-                      }}
-                      placeholder="Napsat komentář..."
-                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                    />
-                    <button 
-                      onClick={async () => {
-                        if (!newAgendaComment.trim()) return;
-                        const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
-                        const { error } = await supabase.from('agenda_comments').insert({
-                          agenda_id: viewingAgendaItem.id,
-                          author_name: adminName,
-                          content: newAgendaComment.trim()
-                        });
-                        if (!error) {
-                          setNewAgendaComment('');
-                          fetchAgendaComments();
-                        }
-                      }}
-                      className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl font-bold text-sm transition-all"
-                    >
-                      Odeslat
-                    </button>
+                        }}
+                        disabled={!newAgendaComment.trim()}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:hover:bg-zinc-800 text-white rounded-lg transition-all"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
