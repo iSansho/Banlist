@@ -267,6 +267,60 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []); // Prázdne pole - spustí sa len raz pri mountnutí
 
+  // Real-time listener for Agenda Detail Modal
+  useEffect(() => {
+    if (!viewingAgendaItem) return;
+
+    const channel = supabase.channel(`agenda-detail-${viewingAgendaItem.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'agenda_comments',
+          filter: `agenda_id=eq.${viewingAgendaItem.id}`
+        },
+        (payload) => {
+          setAgendaComments((prev) => {
+            if (prev.some(c => c.id === payload.new.id)) return prev;
+            return [...prev, payload.new as AgendaComment];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'agenda_votes',
+          filter: `agenda_id=eq.${viewingAgendaItem.id}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setAgendaVotes(prev => {
+              if (prev.some(v => v.agenda_id === payload.new.agenda_id && v.admin_id === payload.new.admin_id)) return prev;
+              return [...prev, payload.new as AgendaVote];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            setAgendaVotes(prev => prev.map(v => 
+              (v.agenda_id === payload.new.agenda_id && v.admin_id === payload.new.admin_id) 
+                ? payload.new as AgendaVote 
+                : v
+            ));
+          } else if (payload.eventType === 'DELETE') {
+            setAgendaVotes(prev => prev.filter(v => 
+              !(v.agenda_id === payload.old.agenda_id && v.admin_id === payload.old.admin_id)
+            ));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [viewingAgendaItem]);
+
     const verifyAndFetchData = async (currentUser: any) => {
     if (isVerifyingRef.current || isVerified) return;
     
