@@ -53,6 +53,14 @@ import {
 import { cn } from './lib/utils';
 import { supabase, Punishment, PunishmentType, PUNISHMENT_REASONS, PUNISHMENT_TYPES, Wanted, Bug, AgendaItem, Log, Admin, PunishmentReason, SuggestionComment, SystemSetting, AgendaRead, AgendaComment, AgendaVote } from './lib/supabase';
 
+const DISCORD_ROLES = [
+  { id: '1336047749938020442', name: 'Project Management' },
+  { id: '1413570330987073576', name: 'Dev' },
+  { id: '1405965334602715257', name: 'Senior Staff Team' },
+  { id: '1367490395545534536', name: 'Staff Team' },
+  { id: '1367962791360860215', name: 'Staff Test' }
+];
+
 // Utility pro sanitizaci HTML proti XSS
 const escapeHtml = (unsafe: string | null | undefined) => {
   if (!unsafe) return '';
@@ -63,6 +71,14 @@ const escapeHtml = (unsafe: string | null | undefined) => {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 };
+
+const EmptyState = ({ icon: Icon, title, description }: { icon: any, title: string, description: string }) => (
+  <div className="text-center py-16 text-zinc-500 bg-zinc-900/30 rounded-2xl border border-zinc-800/50 border-dashed">
+    <Icon className="w-12 h-12 mx-auto mb-4 opacity-20" />
+    <p className="font-medium text-zinc-300">{title}</p>
+    <p className="text-xs mt-1 opacity-60">{description}</p>
+  </div>
+);
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -127,11 +143,15 @@ export default function App() {
   const [bugsSearchTerm, setBugsSearchTerm] = useState('');
   const [logsSearchTerm, setLogsSearchTerm] = useState('');
   const [agendaSearchTerm, setAgendaSearchTerm] = useState('');
+  const [agendaFilter, setAgendaFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [wantedFilter, setWantedFilter] = useState<string>('ALL');
   const [bugsFilter, setBugsFilter] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{id: string, table: string, name: string} | null>(null);
+  const [archiveConfirmation, setArchiveConfirmation] = useState(false);
+  const [warnConfirmation, setWarnConfirmation] = useState<{activeWarns: number, proceed: () => void} | null>(null);
   const [viewingPunishment, setViewingPunishment] = useState<Punishment | null>(null);
   const [viewingWanted, setViewingWanted] = useState<Wanted | null>(null);
   const [selectedPlayerHistory, setSelectedPlayerHistory] = useState<{discord_id: string, discord_username: string} | null>(null);
@@ -500,6 +520,67 @@ export default function App() {
     setAgendaComments(data || []);
   };
 
+  const handleAddAgendaComment = async () => {
+    if (!newAgendaComment.trim() || !viewingAgendaItem) return;
+    const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
+    const commentText = newAgendaComment.trim();
+    
+    // Optimistic update
+    const tempId = Date.now().toString();
+    const newComment: AgendaComment = {
+      id: tempId,
+      agenda_id: viewingAgendaItem.id,
+      author_name: adminName,
+      content: commentText,
+      created_at: new Date().toISOString()
+    };
+    setAgendaComments(prev => [...prev, newComment]);
+    setNewAgendaComment('');
+
+    const { error } = await supabase.from('agenda_comments').insert({
+      agenda_id: viewingAgendaItem.id,
+      author_name: adminName,
+      content: commentText
+    });
+
+    if (error) {
+      toast.error('Chyba při odesílání komentáře.');
+      setAgendaComments(prev => prev.filter(c => c.id !== tempId)); // Revert
+    } else {
+      fetchAgendaComments();
+      
+      const mentionRegex = /@[\w.]+/g;
+      const mentions = commentText.match(mentionRegex);
+      
+      const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
+      if (webhookUrl) {
+        try {
+          const payload = {
+            content: mentions && mentions.length > 0 ? mentions.join(' ') : "Nová zmínka v diskuzi",
+            embeds: [{
+              title: '🔔 Nová zmínka v diskuzi',
+              color: parseInt('f1c40f', 16),
+              fields: [
+                { name: 'Komentář od', value: adminName, inline: true },
+                { name: 'Označení uživatelé', value: mentions && mentions.length > 0 ? mentions.join(', ') : 'Nikdo', inline: true },
+                { name: 'Text', value: commentText.length > 100 ? commentText.substring(0, 100) + '...' : commentText },
+                { name: 'Odkaz', value: `[Otevřít podnět na webu](${window.location.origin})` }
+              ]
+            }]
+          };
+          console.log("Discord Payload:", payload);
+          await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } catch (err) {
+          console.error('Failed to send mention webhook:', err);
+        }
+      }
+    }
+  };
+
   const fetchAgendaVotes = async () => {
     const { data } = await supabase.from('agenda_votes').select('*');
     setAgendaVotes(data || []);
@@ -517,16 +598,6 @@ export default function App() {
   const fetchAdmins = async () => {
     const { data } = await supabase.from('admins').select('*').order('created_at', { ascending: false });
     setAdmins(data || []);
-  };
-
-  const handleDeleteAdmin = async (id: string, username: string) => {
-    if (!confirm(`Opravdu chcete odebrat přístup adminovi ${username}?`)) return;
-    
-    const { error } = await supabase.from('admins').delete().eq('id', id);
-    if (!error) {
-      logAction('ODEBRÁNÍ_ADMINA', username, `Admin ${username} byl odebrán ze systému.`);
-      fetchAdmins();
-    }
   };
 
   const DiscordUserSearch = ({ onSelect, value, placeholder }: { onSelect: (user: any) => void, value: string, placeholder: string }) => {
@@ -756,10 +827,17 @@ export default function App() {
   };
 
   const archiveResolved = async () => {
-    if (!confirm('Opravdu chcete archivovat všechny vyřešené podněty?')) return;
+    setArchiveConfirmation(true);
+  };
 
+  const confirmArchive = async () => {
     const resolvedItems = agendaItems.filter(m => m.status === 'RESOLVED');
-    if (resolvedItems.length === 0) return;
+    if (resolvedItems.length === 0) {
+      setArchiveConfirmation(false);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     const { error } = await supabase
       .from('meetings')
@@ -769,10 +847,14 @@ export default function App() {
     if (error) {
       toast.error('Chyba při archivaci: ' + error.message);
     } else {
+      // Optimistic update
+      setAgendaItems(prev => prev.map(m => m.status === 'RESOLVED' ? { ...m, status: 'ARCHIVED' } : m));
       toast.success('Podněty byly archivovány.');
       logAction('Archivace Agendy', 'Hromadná akce', `${resolvedItems.length} podnětů`);
-      fetchData();
     }
+    
+    setArchiveConfirmation(false);
+    setIsSubmitting(false);
   };
 
   const handleLogout = async () => {
@@ -801,7 +883,7 @@ export default function App() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, skipWarnCheck = false) => {
     e.preventDefault();
     if (!isAdmin || !user) return;
 
@@ -842,11 +924,13 @@ export default function App() {
       case 'PLAYERS':
         if (playersTab === 'BANLIST') {
           // Warn Limit Check
-          if (formData.type === 'WARN' && activeWarns >= 3) {
-            if (!confirm(`Hráč má ${activeWarns} aktívnych warnov. Odporúčaný trest: BAN. Naozaj chcete pokračovať s WARN?`)) {
-              setIsSubmitting(false);
-              return;
-            }
+          if (!skipWarnCheck && formData.type === 'WARN' && activeWarns >= 3) {
+            setWarnConfirmation({
+              activeWarns,
+              proceed: () => handleSubmit(e, true)
+            });
+            setIsSubmitting(false);
+            return;
           }
 
           // Discord Name Resolver Fallback
@@ -953,18 +1037,40 @@ export default function App() {
     let error;
     try {
       if (editingItem) {
-        const { error: updateError } = await supabase
+        const { data, error: updateError } = await supabase
           .from(table)
           .update(payload)
-          .eq('id', editingItem.id);
+          .eq('id', editingItem.id)
+          .select()
+          .single();
         error = updateError;
-        if (!error) logAction(`Upraven ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
+        if (!error) {
+          logAction(`Upraven ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
+          // Optimistic UI update
+          if (table === 'punishments') setPunishments(prev => prev.map(i => i.id === editingItem.id ? data : i));
+          if (table === 'wanted') setWantedList(prev => prev.map(i => i.id === editingItem.id ? data : i));
+          if (table === 'bugs') setBugs(prev => prev.map(i => i.id === editingItem.id ? data : i));
+          if (table === 'meetings') setAgendaItems(prev => prev.map(i => i.id === editingItem.id ? data : i));
+          if (table === 'admins') setAdmins(prev => prev.map(i => i.id === editingItem.id ? data : i));
+          if (table === 'punishment_reasons') setPunishmentReasons(prev => prev.map(i => i.id === editingItem.id ? data : i));
+        }
       } else {
-        const { error: insertError } = await supabase
+        const { data, error: insertError } = await supabase
           .from(table)
-          .insert([payload]);
+          .insert([payload])
+          .select()
+          .single();
         error = insertError;
-        if (!error) logAction(`Nový ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
+        if (!error) {
+          logAction(`Nový ${activeSection}${activeSection === 'PLAYERS' ? ` (${playersTab})` : activeSection === 'FEEDBACK' ? ` (${feedbackTab})` : ''}`, targetName, logMsg);
+          // Optimistic UI update
+          if (table === 'punishments') setPunishments(prev => [data, ...prev]);
+          if (table === 'wanted') setWantedList(prev => [data, ...prev]);
+          if (table === 'bugs') setBugs(prev => [data, ...prev]);
+          if (table === 'meetings') setAgendaItems(prev => [data, ...prev]);
+          if (table === 'admins') setAdmins(prev => [data, ...prev]);
+          if (table === 'punishment_reasons') setPunishmentReasons(prev => [data, ...prev]);
+        }
       }
     } catch (e: any) {
       error = e;
@@ -986,33 +1092,37 @@ export default function App() {
         try {
           const webhookUrl = systemSettings.find(s => s.key === 'banlist_webhook')?.value;
           if (webhookUrl) {
-            const embedColor = formData.type === 'BAN' ? 15158332 : (formData.type === 'WARN' ? 16776960 : 15844367);
+            const embedColor = formData.type === 'BAN' ? parseInt('e74c3c', 16) : (formData.type === 'WARN' ? parseInt('f1c40f', 16) : parseInt('f39c12', 16));
             const emoji = formData.type === 'BAN' ? '🔨' : (formData.type === 'WARN' ? '⚠️' : '👢');
             const actionText = editingItem ? 'Upraven' : 'Nový';
+            
+            const payload = {
+              content: `Hráč ${formData.discord_id ? `<@${formData.discord_id}>` : `**${formData.discord_username || 'Neznámý'}**`} dostal trest od administrátora ${adminDiscordId ? `<@${adminDiscordId}>` : `**${adminName}**`}.`,
+              embeds: [{
+                title: `${emoji} ${actionText} Trest | ${formData.type}`,
+                color: embedColor,
+                fields: [
+                  { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
+                  { name: '🛡️ Admin', value: adminName, inline: true },
+                  { name: '\u200B', value: '\u200B', inline: true },
+                  { name: '📋 Důvod', value: formData.reason || 'Nezadán', inline: false },
+                  { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
+                  { name: '🔗 Důkaz', value: formData.proof_urls.filter(url => url.trim() !== '').length > 0 ? formData.proof_urls.filter(url => url.trim() !== '').map((url, i) => `[Důkaz ${i+1}](${url})`).join(', ') : '*Bez důkazu*', inline: true },
+                  { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
+                ],
+                footer: {
+                  text: 'Systém trestů | GenK'
+                },
+                timestamp: new Date().toISOString()
+              }]
+            };
+            
+            console.log("Discord Payload:", payload);
             
             await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                content: `Hráč ${formData.discord_id ? `<@${formData.discord_id}>` : `**${formData.discord_username || 'Neznámý'}**`} dostal trest od administrátora ${adminDiscordId ? `<@${adminDiscordId}>` : `**${adminName}**`}.`,
-                embeds: [{
-                  title: `${emoji} ${actionText} Trest | ${formData.type}`,
-                  color: embedColor,
-                  fields: [
-                    { name: '👤 Uživatel', value: formData.discord_id ? `<@${formData.discord_id}>\n(${formData.discord_id})` : 'Neznámý', inline: true },
-                    { name: '🛡️ Admin', value: adminName, inline: true },
-                    { name: '\u200B', value: '\u200B', inline: true },
-                    { name: '📋 Důvod', value: formData.reason || 'Nezadán', inline: false },
-                    { name: '📝 Detaily', value: formData.details || '*Žádné dodatečné detaily*', inline: false },
-                    { name: '🔗 Důkaz', value: formData.proof_urls.filter(url => url.trim() !== '').length > 0 ? formData.proof_urls.filter(url => url.trim() !== '').map((url, i) => `[Důkaz ${i+1}](${url})`).join(', ') : '*Bez důkazu*', inline: true },
-                    { name: '⏳ Expirace', value: formData.expires_at ? format(new Date(formData.expires_at), 'dd.MM.yyyy HH:mm') : 'Permanentní', inline: true }
-                  ],
-                  footer: {
-                    text: 'Systém trestů | GenK'
-                  },
-                  timestamp: new Date().toISOString()
-                }]
-              })
+              body: JSON.stringify(payload)
             });
           }
         } catch (e) {
@@ -1025,34 +1135,76 @@ export default function App() {
         try {
           const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
           if (webhookUrl) {
-            const embedColor = formData.priority === 'HIGH' ? 15158332 : (formData.priority === 'MEDIUM' ? 16776960 : 3447003);
+            const embedColor = formData.priority === 'HIGH' ? parseInt('e74c3c', 16) : (formData.priority === 'MEDIUM' ? parseInt('f1c40f', 16) : parseInt('3498db', 16));
             const pingContent = (formData.ping_roles || []).map(id => `<@&${id}>`).join(' ');
+            
+            const payload = {
+              content: pingContent ? `🔔 Nový podnět v Agendě! ${pingContent}` : `🔔 Nový podnět v Agendě!`,
+              embeds: [{
+                title: `📋 ${formData.title}`,
+                ...(formData.description ? { description: formData.description } : {}),
+                color: embedColor,
+                url: window.location.origin,
+                fields: [
+                  { name: 'Kategorie', value: formData.category, inline: true },
+                  { name: 'Priorita', value: formData.priority, inline: true },
+                  { name: 'Autor', value: adminName, inline: true }
+                ],
+                footer: {
+                  text: 'Admin Panel | Agenda'
+                },
+                timestamp: new Date().toISOString()
+              }]
+            };
+            
+            console.log("Discord Payload:", payload);
             
             await fetch(webhookUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                content: pingContent ? `🔔 Nový podnět v Agendě! ${pingContent}` : `🔔 Nový podnět v Agendě!`,
-                embeds: [{
-                  title: `📋 ${formData.title}`,
-                  description: formData.description,
-                  color: embedColor,
-                  url: window.location.origin,
-                  fields: [
-                    { name: 'Kategorie', value: formData.category, inline: true },
-                    { name: 'Priorita', value: formData.priority, inline: true },
-                    { name: 'Autor', value: adminName, inline: true }
-                  ],
-                  footer: {
-                    text: 'Admin Panel | Agenda'
-                  },
-                  timestamp: new Date().toISOString()
-                }]
-              })
+              body: JSON.stringify(payload)
             });
           }
         } catch (e) {
           console.error('Agenda Webhook failed', e);
+        }
+      }
+
+      // Send Webhook for Feedback
+      if (activeSection === 'FEEDBACK' && !editingItem) {
+        try {
+          const webhookUrl = systemSettings.find(s => s.key === 'feedback_webhook')?.value;
+          if (webhookUrl) {
+            const embedColor = feedbackTab === 'BUGS' ? parseInt('e74c3c', 16) : parseInt('3498db', 16);
+            const typeLabel = feedbackTab === 'BUGS' ? 'Bug Report' : 'Návrh';
+            
+            const payload = {
+              content: `🔔 Nový ${typeLabel}!`,
+              embeds: [{
+                title: `📝 ${formData.title}`,
+                ...(formData.description ? { description: formData.description } : {}),
+                color: embedColor,
+                url: window.location.origin,
+                fields: [
+                  { name: 'Autor', value: adminName, inline: true }
+                ],
+                footer: {
+                  text: 'Admin Panel | Zpětná vazba'
+                },
+                timestamp: new Date().toISOString()
+              }]
+            };
+            
+            console.log("Discord Payload:", payload);
+            
+            await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+          }
+        } catch (e) {
+          console.error('Feedback Webhook failed', e);
         }
       }
 
@@ -1097,7 +1249,7 @@ export default function App() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!isAdmin || !confirm('Opravdu chcete smazat tento záznam?')) return;
+    if (!isAdmin) return;
     
     let table = '';
     let name = '';
@@ -1136,14 +1288,34 @@ export default function App() {
       return;
     }
 
+    setDeleteConfirmation({ id, table, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmation) return;
+    const { id, table, name } = deleteConfirmation;
+    setIsSubmitting(true);
+    
     const { error } = await supabase.from(table).delete().eq('id', id);
+    
     if (error) {
-      console.error('Error deleting record:', error);
-      alert('Chyba při mazání: ' + error.message);
+      console.error('Error deleting:', error);
+      toast.error('Chyba při mazání záznamu.');
     } else {
+      // Optimistic UI update
+      if (table === 'punishments') setPunishments(prev => prev.filter(i => i.id !== id));
+      if (table === 'wanted') setWantedList(prev => prev.filter(i => i.id !== id));
+      if (table === 'bugs') setBugs(prev => prev.filter(i => i.id !== id));
+      if (table === 'meetings') setAgendaItems(prev => prev.filter(i => i.id !== id));
+      if (table === 'admins') setAdmins(prev => prev.filter(i => i.id !== id));
+      if (table === 'punishment_reasons') setPunishmentReasons(prev => prev.filter(i => i.id !== id));
+      
+      toast.success('Záznam byl úspěšně smazán!');
       logAction(`Smazán ${activeSection}`, name, `ID: ${id}`);
-      fetchData();
     }
+    
+    setDeleteConfirmation(null);
+    setIsSubmitting(false);
   };
 
   const formatExpiration = (dateStr: string | null) => {
@@ -1276,7 +1448,8 @@ export default function App() {
     const matchesSearch = (m.title?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false) || 
                          (m.description?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false) ||
                          (m.organizer_name?.toLowerCase().includes(agendaSearchTerm.toLowerCase()) || false);
-    return matchesSearch;
+    const matchesFilter = agendaFilter === 'ALL' || m.category === agendaFilter;
+    return matchesSearch && matchesFilter;
   });
 
   const isExpired = (date: string | null) => {
@@ -1404,16 +1577,6 @@ export default function App() {
             
             <div className="mt-8 pt-6 border-t border-zinc-800/50 flex flex-col items-center gap-2">
               <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">Zabezpečený systém Genk RP</p>
-              <button 
-                onClick={() => {
-                  const info = `User: ${user?.email || 'None'}\nID: ${user?.id || 'None'}\nMetadata: ${JSON.stringify(user?.user_metadata || {})}`;
-                  console.log("[Auth] Debug Info:", info);
-                  alert(info);
-                }}
-                className="text-[8px] text-zinc-700 hover:text-zinc-500 transition-colors uppercase tracking-widest"
-              >
-                Debug Info
-              </button>
             </div>
           </div>
         </div>
@@ -1927,6 +2090,7 @@ export default function App() {
                   </div>
                   <button 
                     onClick={async () => {
+                      setIsSubmitting(true);
                       try {
                         const promises = systemSettings.map(setting => 
                           supabase.from('system_settings').upsert({ key: setting.key, value: setting.value })
@@ -1936,11 +2100,21 @@ export default function App() {
                       } catch (error) {
                         console.error('Error saving settings:', error);
                         toast.error('Chyba při ukládání nastavení.');
+                      } finally {
+                        setIsSubmitting(false);
                       }
                     }}
-                    className="mt-6 w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20"
+                    disabled={isSubmitting}
+                    className="mt-6 w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Uložit nastavení
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Ukládám...
+                      </>
+                    ) : (
+                      'Uložit nastavení'
+                    )}
                   </button>
                 </div>
               </div>
@@ -2093,7 +2267,7 @@ export default function App() {
                   {loading ? (
                     <div className="text-center py-12 text-zinc-500 animate-pulse">Načítám záznamy...</div>
                   ) : filteredPunishments.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
+                    <EmptyState icon={Shield} title="Zatím zde nejsou žádné záznamy" description="Seznam trestů je momentálně prázdný." />
                   ) : (
                     <div className="flex flex-col gap-1">
                       {filteredPunishments.map((p) => {
@@ -2199,7 +2373,7 @@ export default function App() {
 
                 <div className="space-y-4">
                   {filteredWanted.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-500">Nenašly se žádné záznamy.</div>
+                    <EmptyState icon={Eye} title="Zatím zde nejsou žádné záznamy" description="Watchlist je momentálně prázdný." />
                   ) : (
                     <div className="flex flex-col gap-1">
                       {filteredWanted.map((w) => (
@@ -2361,7 +2535,9 @@ export default function App() {
                   <tbody className="divide-y divide-zinc-800">
                     {filteredBugs.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
+                        <td colSpan={5} className="px-4 py-8">
+                          <EmptyState icon={BugIcon} title="Nenašly se žádné záznamy" description="Seznam zpětné vazby je momentálně prázdný." />
+                        </td>
                       </tr>
                     ) : filteredBugs.map((b) => (
                       <tr key={b.id} className="hover:bg-zinc-800/30 transition-colors group">
@@ -2418,7 +2594,7 @@ export default function App() {
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6">
               <div className="flex items-center gap-4 w-full md:w-auto">
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-purple-500" /> Meetings
+                  <Calendar className="w-5 h-5 text-purple-500" /> Agenda
                 </h2>
                 <button 
                   onClick={() => setActiveSection('DASHBOARD')}
@@ -2464,6 +2640,31 @@ export default function App() {
               </div>
             </div>
 
+            {/* Agenda Filter Bar */}
+            {!showArchive && (
+              <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+                {[
+                  { id: 'ALL', label: 'Všechny' },
+                  { id: 'BUG', label: 'Bugy' },
+                  { id: 'SUGGESTION', label: 'Návrhy' },
+                  { id: 'COMPLAINT', label: 'Stížnosti' }
+                ].map(filter => (
+                  <button
+                    key={filter.id}
+                    onClick={() => setAgendaFilter(filter.id)}
+                    className={cn(
+                      "px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border",
+                      agendaFilter === filter.id
+                        ? "bg-purple-500/20 text-purple-400 border-purple-500/50"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300"
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {showArchive ? (
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
                 <h3 className="text-lg font-bold text-zinc-300 mb-6 flex items-center gap-2">
@@ -2498,15 +2699,24 @@ export default function App() {
                           <span className="text-green-500 flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'UP').length}</span>
                           <span className="text-red-500 flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> {agendaVotes.filter(v => v.agenda_id === m.id && v.vote === 'DOWN').length}</span>
                         </div>
+                        {isAdmin && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(m.id);
+                            }}
+                            className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                            title="Smazat z archivu"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                         <ChevronRight className="w-5 h-5 text-zinc-600" />
                       </div>
                     </div>
                   ))}
                   {filteredAgendaItems.filter(m => m.status === 'ARCHIVED').length === 0 && (
-                    <div className="text-center py-12 text-zinc-500">
-                      <Archive className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                      <p>Archiv je prázdný.</p>
-                    </div>
+                    <EmptyState icon={Archive} title="Archiv je prázdný" description="Zatím zde nejsou žádné archivované podněty." />
                   )}
                 </div>
               </div>
@@ -2532,12 +2742,15 @@ export default function App() {
                   </div>
                   
                   <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                    {filteredAgendaItems.filter(m => m.status === status).map((m) => (
-                      <div 
-                        key={m.id}
-                        draggable={isAdmin}
-                        onDragStart={(e) => handleDragStart(e, m.id)}
-                        onClick={() => handleViewAgendaItem(m)}
+                    {filteredAgendaItems.filter(m => m.status === status).length === 0 ? (
+                      <EmptyState icon={Inbox} title="Žádné záznamy" description="V tomto sloupci nejsou žádné podněty." />
+                    ) : (
+                      filteredAgendaItems.filter(m => m.status === status).map((m) => (
+                        <div 
+                          key={m.id}
+                          draggable={isAdmin}
+                          onDragStart={(e) => handleDragStart(e, m.id)}
+                          onClick={() => handleViewAgendaItem(m)}
                         className={cn(
                           "bg-zinc-950 border border-zinc-800 rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-zinc-700 transition-all group",
                           m.priority === 'HIGH' ? 'border-l-2 border-l-red-500' : 
@@ -2558,6 +2771,11 @@ export default function App() {
                             <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
                               {m.category}
                             </span>
+                            {m.ping_roles && m.ping_roles.length > 0 && (
+                              <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center gap-1" title="Adresováno pro specifické role">
+                                @Role ({m.ping_roles.length})
+                              </span>
+                            )}
                           </div>
                           {isAdmin && (
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2588,10 +2806,11 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
-              ))}
+              </div>
+            ))}
             </div>
             )}
           </div>
@@ -2631,7 +2850,9 @@ export default function App() {
                     <tbody className="divide-y divide-zinc-800">
                       {filteredLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">Nenašly se žádné záznamy.</td>
+                          <td colSpan={5} className="px-4 py-8">
+                            <EmptyState icon={FileText} title="Nenašly se žádné záznamy" description="Seznam logů je momentálně prázdný." />
+                          </td>
                         </tr>
                       ) : filteredLogs.map((log) => (
                         <tr key={log.id} className="hover:bg-zinc-800/30 transition-colors">
@@ -2715,7 +2936,7 @@ export default function App() {
             <div className="p-6 overflow-y-auto custom-scrollbar">
               <div className="space-y-4">
                 {punishments.filter(p => p.player_discord_id === selectedPlayerHistory.discord_id).length === 0 ? (
-                  <div className="text-center py-12 text-zinc-500">Hráč nemá žádné záznamy o trestech.</div>
+                  <EmptyState icon={History} title="Žádné záznamy" description="Hráč nemá žádné záznamy o trestech." />
                 ) : (
                   <div className="relative border-l border-zinc-800 ml-3 space-y-6 pb-4">
                     {punishments
@@ -2836,7 +3057,7 @@ export default function App() {
                 {editingItem ? 'Upravit' : 'Přidat'} {
                   activeSection === 'PLAYERS' ? (playersTab === 'BANLIST' ? 'Trest' : 'Hledaného') :
                   activeSection === 'FEEDBACK' ? (feedbackTab === 'BUGS' ? 'Bug' : 'Návrh') : 
-                  activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Důvod') : 'Meeting'
+                  activeSection === 'SETTINGS' ? (settingsTab === 'ADMINS' ? 'Admina' : 'Důvod') : 'Podnět'
                 }
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
@@ -3742,6 +3963,122 @@ export default function App() {
         </div>
       )}
 
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-8 h-8 text-red-500" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Opravdu smazat?</h2>
+              <p className="text-sm text-zinc-400 mb-6">
+                Chystáte se smazat záznam <strong className="text-white">{deleteConfirmation.name}</strong>. Tato akce je nevratná.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeleteConfirmation(null)}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+                >
+                  Zrušit
+                </button>
+                <button 
+                  onClick={confirmDelete}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <><div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> Mažu...</>
+                  ) : (
+                    <><Trash2 className="w-4 h-4" /> Smazat</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Confirmation Modal */}
+      {archiveConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Archive className="w-8 h-8 text-blue-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Opravdu archivovat?</h3>
+              <p className="text-sm text-zinc-400 mb-6">
+                Chystáte se archivovat všechny vyřešené podněty. Tato akce přesune podněty do archivu.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setArchiveConfirmation(false)}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+                >
+                  Zrušit
+                </button>
+                <button
+                  onClick={confirmArchive}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Archivuji...
+                    </>
+                  ) : (
+                    <>
+                      <Archive className="w-4 h-4" />
+                      Archivovat
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Warn Confirmation Modal */}
+      {warnConfirmation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-8 h-8 text-yellow-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Příliš mnoho varování</h3>
+              <p className="text-sm text-zinc-400 mb-6">
+                Hráč má již <strong className="text-white">{warnConfirmation.activeWarns}</strong> aktivních warnů. Odporúčaný trest je BAN. Opravdu chcete pokračovat a udělit další WARN?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setWarnConfirmation(null)}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+                >
+                  Zrušit
+                </button>
+                <button
+                  onClick={() => {
+                    setWarnConfirmation(null);
+                    warnConfirmation.proceed();
+                  }}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-yellow-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  Pokračovat s WARN
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Viewing Wanted Modal */}
       {viewingWanted && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -3872,6 +4209,17 @@ export default function App() {
                   <span className="px-2 py-0.5 rounded-full uppercase tracking-wider text-[10px] font-bold bg-zinc-800/50 text-zinc-400">
                     {viewingAgendaItem.status}
                   </span>
+                  {viewingAgendaItem.ping_roles && viewingAgendaItem.ping_roles.length > 0 && (
+                    <>
+                      <span className="text-zinc-700">•</span>
+                      <span className="text-indigo-400 flex items-center gap-1">
+                        Adresováno pro: {viewingAgendaItem.ping_roles.map((roleId: string) => {
+                          const role = DISCORD_ROLES.find(r => r.id === roleId);
+                          return role ? `@${role.name}` : `@Role`;
+                        }).join(', ')}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
               <button 
@@ -4055,7 +4403,7 @@ export default function App() {
                       </div>
                     ))}
                     {agendaComments.filter(c => c.agenda_id === viewingAgendaItem.id).length === 0 && (
-                      <p className="text-sm text-zinc-500 italic py-4">Zatím žádné komentáře.</p>
+                      <EmptyState icon={MessageSquare} title="Žádné komentáře" description="Zatím žádné komentáře." />
                     )}
                   </div>
                 </div>
@@ -4073,99 +4421,16 @@ export default function App() {
                         type="text"
                         value={newAgendaComment}
                         onChange={(e) => setNewAgendaComment(e.target.value)}
-                        onKeyDown={async (e) => {
-                          if (e.key === 'Enter' && newAgendaComment.trim()) {
-                            const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
-                            const commentText = newAgendaComment.trim();
-                            const { error } = await supabase.from('agenda_comments').insert({
-                              agenda_id: viewingAgendaItem.id,
-                              author_name: adminName,
-                              content: commentText
-                            });
-                            if (!error) {
-                              setNewAgendaComment('');
-                              fetchAgendaComments();
-                              
-                              const mentionRegex = /@[\w.]+/g;
-                              const mentions = commentText.match(mentionRegex);
-                              
-                              if (mentions && mentions.length > 0) {
-                                const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
-                                if (webhookUrl) {
-                                  try {
-                                    await fetch(webhookUrl, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({
-                                        content: mentions.join(' '),
-                                        embeds: [{
-                                          title: '🔔 Nová zmínka v diskuzi',
-                                          color: 15844367,
-                                          fields: [
-                                            { name: 'Komentář od', value: adminName, inline: true },
-                                            { name: 'Označení uživatelé', value: mentions.join(', '), inline: true },
-                                            { name: 'Text', value: commentText.length > 100 ? commentText.substring(0, 100) + '...' : commentText },
-                                            { name: 'Odkaz', value: `[Otevřít podnět na webu](${window.location.origin})` }
-                                          ]
-                                        }]
-                                      })
-                                    });
-                                  } catch (err) {
-                                    console.error('Failed to send mention webhook:', err);
-                                  }
-                                }
-                              }
-                            }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddAgendaComment();
                           }
                         }}
                         placeholder="Přidat komentář..."
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-4 pr-12 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 transition-all"
                       />
                       <button 
-                        onClick={async () => {
-                          if (!newAgendaComment.trim()) return;
-                          const adminName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Admin';
-                          const commentText = newAgendaComment.trim();
-                          const { error } = await supabase.from('agenda_comments').insert({
-                            agenda_id: viewingAgendaItem.id,
-                            author_name: adminName,
-                            content: commentText
-                          });
-                          if (!error) {
-                            setNewAgendaComment('');
-                            fetchAgendaComments();
-                            
-                            const mentionRegex = /@[\w.]+/g;
-                            const mentions = commentText.match(mentionRegex);
-                            
-                            if (mentions && mentions.length > 0) {
-                              const webhookUrl = systemSettings.find(s => s.key === 'agenda_webhook')?.value;
-                              if (webhookUrl) {
-                                try {
-                                  await fetch(webhookUrl, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      content: mentions.join(' '),
-                                      embeds: [{
-                                        title: '🔔 Nová zmínka v diskuzi',
-                                        color: 15844367,
-                                        fields: [
-                                          { name: 'Komentář od', value: adminName, inline: true },
-                                          { name: 'Označení uživatelé', value: mentions.join(', '), inline: true },
-                                          { name: 'Text', value: commentText.length > 100 ? commentText.substring(0, 100) + '...' : commentText },
-                                          { name: 'Odkaz', value: `[Otevřít podnět na webu](${window.location.origin})` }
-                                        ]
-                                      }]
-                                    })
-                                  });
-                                } catch (err) {
-                                  console.error('Failed to send mention webhook:', err);
-                                }
-                              }
-                            }
-                          }
-                        }}
+                        onClick={handleAddAgendaComment}
                         disabled={!newAgendaComment.trim()}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:hover:bg-zinc-800 text-white rounded-lg transition-all"
                       >
